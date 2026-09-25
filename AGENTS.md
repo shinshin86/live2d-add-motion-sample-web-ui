@@ -79,6 +79,13 @@ engine; do not edit it when switching models.
   head/body angles and hair etc. will sway naturally.
 - Avoid PartOpacity switching in principle: it produces unnatural
   fade-ins/pops.
+  - If you do need it (e.g. a model whose raised-arm pose is a separate
+    part set), put every PartOpacity curve **after** all Parameter curves
+    in the motion's `Curves` array. The Cubism SDK evaluates curves grouped
+    by target in that order, so any Parameter curve placed after a
+    PartOpacity curve is silently skipped: the part switch works, but the
+    motion otherwise stays at its t=0 pose. The validator does not catch
+    this — only the visual check does.
 - Register new motions into the `Action` group; never change the existing
   groups.
 - Actions use `Loop: false` with FadeIn/Out of 0.2–0.5 s.
