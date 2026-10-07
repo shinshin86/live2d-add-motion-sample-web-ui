@@ -68,7 +68,7 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
 - "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
 - "カメラ" (camera) moves the avatar with your face, and "配信モード" (streaming mode) shows it alone for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)
-- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `?uitest=1` (automated drag/zoom test)
+- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop), `?uitest=1` (automated drag/zoom test)
 
 ## Adding your own motions
 
@@ -145,6 +145,17 @@ The face is layered on top of the playing motion: play an emotion such as a sad 
 
 Camera frames are processed in the browser (a Web Worker running MediaPipe Face Landmarker) and are never sent anywhere. The MediaPipe runtime is loaded from jsDelivr, pinned to version 0.10.21 (later versions add metrics reporting to an external service), and the face model is bundled in `vendor/mediapipe/`.
 
+### Recording a performance as a motion
+
+While the camera runs, "● 録画開始" (start recording) records your face for up to 60 seconds. Give it a name and save it; check "ループとして保存" (save as a loop) for a motion to play while speaking. Then run:
+
+```bash
+python3 tools/gen_motions.py   # the recording becomes a motion in the Action group
+python3 tools/validate_motions.py
+```
+
+With `python3 tools/serve.py` the file is saved to `motion-defs/recordings/<model-name>/` (git-ignored, like the definitions); with another server it is downloaded and you move it there. The recording stores what your face adds to each parameter, so the idle or emotion motion that happened to be playing is not baked in. The generator puts it back on the model's base pose, keeps it within the observed value ranges, reduces it to keyframes, and eases in from and out to the base pose (a loop instead blends its end into its start and leaves out the lip-sync parameters). The result passes `validate_motions.py` as is.
+
 ### Streaming mode (OBS)
 
 1. Start the server with `python3 tools/serve.py`. The streaming mode needs it; `python3 -m http.server` cannot relay
@@ -159,10 +170,10 @@ Camera frames are processed in the browser (a Web Worker running MediaPipe Face 
 index.html                  WebUI (static HTML, no build step); resolves the model via model.config.json
 stream.html                 Streaming page (avatar only, for OBS)
 web/                        WebUI modules (plain JavaScript with JSDoc types; no build step):
-                            camera tracking, streaming relay, loop playback
+                            camera tracking, recording, streaming relay, loop playback
 vendor/mediapipe/           MediaPipe face model (Apache-2.0) used by the camera tracking
 tools/
-  serve.py                  Local server: static files + relay to stream.html
+  serve.py                  Local server: static files, relay to stream.html, saving recordings
   setup_model.py            Place a model (zip/folder → models/) + generate model.config.json
   analyze_model.py          Analyze parameters, value ranges, physics outputs
   gen_motions.py            Generation engine (model-agnostic); builds + registers motions from definitions (idempotent)

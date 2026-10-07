@@ -48,12 +48,16 @@ index.html                 WebUI (static HTML); resolves the model via model.con
 stream.html                Streaming page for OBS (avatar only), mirrored from index.html
 web/                       WebUI modules: plain JavaScript with JSDoc types (`// @ts-check`),
                            no build step. tracking*.js / camera.js / live2d-face.js: camera
-                           face tracking; relay.js / stream.js: streaming; motion-player.js:
-                           loop playback
+                           face tracking; recorder.js: recording; relay.js / stream.js:
+                           streaming; motion-player.js: loop playback
 vendor/mediapipe/          MediaPipe face model + license (the runtime comes from jsDelivr,
                            pinned to 0.10.21; do not upgrade without checking for telemetry)
 tools/
-  serve.py                 Local server: static files + relay to stream.html (+ verify hold)
+  serve.py                 Local server: static files, relay to stream.html, saving
+                           recordings (+ verify hold)
+motion-defs/recordings/<model>/*.json
+                           Camera recordings [git-ignored]; gen_motions.py turns each
+                           into an Action motion (named after the file)
   setup_model.py           Place a model (zip/folder → models/) + generate model.config.json
   analyze_model.py         Print parameters, safe ranges, physics outputs, base pose
   gen_motions.py           Generation engine (model-agnostic, no editing needed);
@@ -152,6 +156,7 @@ curves use the parameters.
 | `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh; also on stream.html) |
 | `&camera=1` | Start the camera on load |
 | `&fakeface=1` | Drive the face with synthetic tracking results (no camera) |
+| `&record=N` | Record N seconds of the face and save it (`&recordloop=1`: as a loop); with `&fakeface=1` this tests the recording path headless |
 | `stream.html?bg=green&status=1` | Streaming page: background (transparent by default, `green`, `blue`, `<hex>`); `status=1` shows the relay state |
 
 ## Headless-browser verification pitfalls (measured; important)

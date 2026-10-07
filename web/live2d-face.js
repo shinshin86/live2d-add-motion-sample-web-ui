@@ -23,6 +23,28 @@ const MULTIPLY = { eyeLOpen: ["ParamEyeLOpen"], eyeROpen: ["ParamEyeROpen"] };
 const REPLACE = { gazeX: ["ParamEyeBallX"], gazeY: ["ParamEyeBallY"], mouthOpen: ["ParamMouthOpenY"] };
 
 /**
+ * @typedef {"add" | "multiply" | "replace"} FaceMode
+ * @typedef {{ id: string, mode: FaceMode, value: number }} FaceContribution
+ */
+
+/**
+ * What the face contributes to each Live2D parameter (also what a recording stores).
+ * @param {FaceParams} params
+ * @returns {FaceContribution[]}
+ */
+export function faceToLive2D(params) {
+  /** @type {FaceContribution[]} */
+  const out = [];
+  for (const [mode, table] of /** @type {[FaceMode, Record<string, string[]>][]} */ (
+    [["add", ADD], ["multiply", MULTIPLY], ["replace", REPLACE]])) {
+    for (const [key, ids] of Object.entries(table)) {
+      for (const id of ids) out.push({ id, mode, value: params[key] });
+    }
+  }
+  return out;
+}
+
+/**
  * @param {any} model a pixi-live2d-display Live2DModel (Cubism 4)
  * @returns {{ set: (params: FaceParams | null, weight: number) => void }}
  */
@@ -53,23 +75,12 @@ export function attachFaceDriver(model) {
       focus();
       return;
     }
-    for (const [key, ids] of Object.entries(ADD)) {
-      for (const id of ids) {
-        const i = index(id);
-        if (i >= 0) write(i, (v) => v + params[key] * w);
-      }
-    }
-    for (const [key, ids] of Object.entries(MULTIPLY)) {
-      for (const id of ids) {
-        const i = index(id);
-        if (i >= 0) write(i, (v) => v * (1 - w + w * params[key]));
-      }
-    }
-    for (const [key, ids] of Object.entries(REPLACE)) {
-      for (const id of ids) {
-        const i = index(id);
-        if (i >= 0) write(i, (v) => v + (params[key] - v) * w);
-      }
+    for (const { id, mode, value } of faceToLive2D(params)) {
+      const i = index(id);
+      if (i < 0) continue;
+      if (mode === "add") write(i, (v) => v + value * w);
+      else if (mode === "multiply") write(i, (v) => v * (1 - w + w * value));
+      else write(i, (v) => v + (value - v) * w);
     }
   };
 

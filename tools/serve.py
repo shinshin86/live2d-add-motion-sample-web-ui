@@ -7,21 +7,28 @@ Endpoints besides the static files:
   GET  /live/status        {"relay": true} (the WebUI checks for the relay with it)
   POST /live/send          one JSON message from the control page
   GET  /live/events        Server-Sent Events stream of those messages
+  POST /recordings         save a camera recording (web/recorder.js) as
+                           motion-defs/recordings/<model>/<id>.json; the next
+                           tools/gen_motions.py run turns it into a motion
   GET  /__verify_hold?s=N  answers after N seconds (tools/verify_browser.sh)
 
 Only small JSON objects with a known "type" are relayed. Camera frames and
 microphone audio never reach this server: the control page sends only the
 resulting parameters (head angles, mouth openness, ...) and motion commands.
 
-The server binds to 127.0.0.1, so other machines cannot reach it.
+The server binds to 127.0.0.1, so other machines cannot reach it, and it only
+accepts POSTs with a JSON content type from its own pages, so other websites
+open in the browser cannot post to it.
 
 Usage: python3 tools/serve.py [--port 8765]
 """
 import argparse
 import http.server
 import json
+import math
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -30,10 +37,46 @@ import urllib.parse
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESSAGE_TYPES = {"pose", "motion", "stop"}  # see web/relay.js
 MAX_MESSAGE_BYTES = 4096
+MAX_RECORDING_BYTES = 4 * 1024 * 1024
+RECORDING_MODES = {"add", "multiply", "replace"}
 KEEPALIVE_SECONDS = 15
 
 clients = set()  # one queue per connected /live/events stream
 clients_lock = threading.Lock()
+
+
+def current_model_stem():
+    """The model3.json stem from model.config.json (recordings go only there)."""
+    with open(os.path.join(ROOT, "model.config.json")) as fh:
+        return os.path.basename(json.load(fh)["model3"]).replace(".model3.json", "")
+
+
+def valid_recording(rec):
+    """Check a recording against web/recorder.js's format before writing it."""
+    if not isinstance(rec, dict) or rec.get("version") != 1 or rec.get("fps") != 30:
+        return False
+    if not re.fullmatch(r"rec_\d{8}_\d{6}", str(rec.get("id"))):
+        return False
+    if not isinstance(rec.get("label"), str) or not 0 < len(rec["label"]) <= 40:
+        return False
+    if not isinstance(rec.get("loop"), bool):
+        return False
+    duration = rec.get("duration")
+    if not isinstance(duration, (int, float)) or not 1 <= duration <= 60:
+        return False
+    params = rec.get("params")
+    if not isinstance(params, dict) or not 0 < len(params) <= 64:
+        return False
+    frames = round(duration * 30) + 1
+    for pid, entry in params.items():
+        if not re.fullmatch(r"Param\w{1,60}", pid) or not isinstance(entry, dict):
+            return False
+        values = entry.get("values")
+        if entry.get("mode") not in RECORDING_MODES or not isinstance(values, list) or len(values) != frames:
+            return False
+        if not all(isinstance(v, (int, float)) and math.isfinite(v) and abs(v) <= 100 for v in values):
+            return False
+    return True
 
 
 def broadcast(payload):
@@ -70,8 +113,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+    def same_origin_json(self):
+        """A JSON POST from this server's own pages. Cross-site pages can only send
+        a JSON content type after a CORS preflight, which this server never grants."""
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or urllib.parse.urlparse(origin).netloc == self.headers.get("Host")
+
     def do_POST(self):
-        if urllib.parse.urlparse(self.path).path != "/live/send":
+        if not self.same_origin_json():
+            self.send_error(403)
+            return
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/recordings":
+            self.save_recording()
+            return
+        if path != "/live/send":
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -89,6 +147,37 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         broadcast(json.dumps(message, separators=(",", ":")))
         self.send_response(204)
         self.end_headers()
+
+    def save_recording(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if not 0 < length <= MAX_RECORDING_BYTES:
+            self.send_error(413)
+            return
+        try:
+            body = json.loads(self.rfile.read(length))
+            stem = current_model_stem()
+        except (ValueError, OSError, KeyError):
+            self.send_error(400)
+            return
+        rec = body.get("recording") if isinstance(body, dict) else None
+        if body.get("model") != stem or not valid_recording(rec):
+            self.send_error(400, "invalid recording or not the current model")
+            return
+        folder = os.path.join(ROOT, "motion-defs", "recordings", stem)
+        target = os.path.join(folder, f"{rec['id']}.json")
+        if os.path.exists(target):
+            self.send_error(409)
+            return
+        os.makedirs(folder, exist_ok=True)
+        with open(target, "w") as fh:
+            json.dump(rec, fh, ensure_ascii=False, separators=(",", ":"))
+            fh.write("\n")
+        reply = json.dumps({"path": os.path.relpath(target, ROOT)}).encode()
+        self.send_response(201)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(reply)))
+        self.end_headers()
+        self.wfile.write(reply)
 
     def stream_events(self):
         q = queue.Queue(maxsize=64)
