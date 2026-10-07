@@ -64,7 +64,9 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 
 - Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
 - **Drag** the avatar to move it, **mouse wheel / pinch** to zoom around the cursor, and "Reset view" to restore the initial placement
-- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `?uitest=1` (automated drag/zoom test)
+- The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)
+- A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion. "疑似リップシンク: ON/OFF" (simulated lip sync) moves the mouth as if speaking, to check that the loop and lip sync coexist
+- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync on), `?uitest=1` (automated drag/zoom test)
 
 ## Adding your own motions
 
@@ -82,6 +84,55 @@ tools/verify_browser.sh   # captures peak poses with headless Chrome (Chrome req
 
 Design rules (value ranges, returning to the base pose, avoiding physics-driven parameters, etc.) and model-specific knowledge are documented in [AGENTS.md](AGENTS.md). It is written for AI agents but useful for humans too.
 
+## Loop motions (e.g. an emotion held while speaking)
+
+A motion can be generated as a seamless loop: for example a "sad" motion played over and over for as long as a character speaks, with lip sync on top. The whole motion repeats, not a cut-out middle part, and the end flows into the start without a jump or a pause.
+
+### Generating
+
+In `motion-defs/<model-name>.py`, pass `loop=True` to both `motion()` and each `curve()`:
+
+```python
+MOTIONS["sad_loop"] = motion(6.0, [
+    curve("ParamAngleY", [(0, -15), (0.75, -12.5), (2.25, -17.5), (3.75, -12.5), (5.25, -17.5), (6.0, -15)], loop=True),
+    curve("ParamBrowLForm", [(0, -0.8), (6.0, -0.8)], loop=True),
+    # ...
+], loop=True)
+```
+
+- Each curve must end on its first value. `gen_motions.py` gives the keys tangents that carry the same speed through the seam and never overshoot, and writes `Meta.Loop: true`
+- A loop may stay in the emotion's pose the whole time. It does not have to start from and return to the base pose like one-shot actions do
+- `validate_motions.py` checks the seam: the same value (no jump) and the same slope (no jerk) at the end as at the start
+- Keep the model's LipSync parameters (usually `ParamMouthOpenY`) out of loops that play while speaking. `validate_motions.py` warns about them, and `analyze_model.py` lists them
+- Put blinks into the eye-open curves. The auto-blink pauses while any motion is playing
+
+### Playing (in your app)
+
+The Cubism Framework reads `Meta.Loop` but does not act on it. Your app has to switch looping on for the motion itself. This only uses the public motion API, so the Live2D / Cubism libraries stay unmodified. With pixi-live2d-display (as used by this WebUI):
+
+```js
+const mm = model.internalModel.motionManager;
+const motion = await mm.loadMotion("Action", index); // the cached instance pixi will play
+motion.setIsLoop(true);         // wrap back to the start at the end; never finishes
+motion.setIsLoopFadeIn(false);  // no fade-in restart per cycle (it would stall every seam)
+await model.motion("Action", index, PIXI.live2d.MotionPriority.FORCE);
+```
+
+- Set both flags **before** starting the motion. With the official Cubism SDK for Web, use the same two methods on `CubismMotion`. Other runtimes (Unity, native) may differ, which is not verified here
+- Only loop motions from the `Action` group that have `Meta.Loop: true`. Motions exported from Cubism Editor often carry `Meta.Loop: true` even when their ends do not match
+- FadeIn/FadeOut only apply when entering and leaving the loop, never between cycles
+- To stop, either start another motion (it fades in from the current pose) or `mm.stopAllMotions()`. `motion.setIsLoop(false)` lets the running cycle finish first
+- Lip sync: write the mouth value every frame after the motion update, e.g. in `model.internalModel.on("beforeModelUpdate", ...)` with `coreModel.setParameterValueById("ParamMouthOpenY", v)`
+- After a loop, something has to put the face back. Parameters no motion writes keep their last value, so the model needs an idle motion (group `Idle`) that sets the face parameters
+
+### Checking the seam
+
+```bash
+tools/verify_browser.sh --loop Action:1   # both sides of the 1st-3rd seams + a mid-cycle shot, lip sync on
+```
+
+The shots taken just before and after each seam should look alike and still show the loop's expression. In the WebUI, `?play=Action:1&cycles=3&lipsync=1` plays three cycles with simulated lip sync and then stops.
+
 ## Repository layout
 
 ```
@@ -91,7 +142,7 @@ tools/
   analyze_model.py          Analyze parameters, value ranges, physics outputs
   gen_motions.py            Generation engine (model-agnostic); builds + registers motions from definitions (idempotent)
   validate_motions.py       Independently implemented validator
-  verify_browser.sh         Real-rendering verification with headless Chrome
+  verify_browser.sh         Real-rendering verification with headless Chrome (--loop: seam check)
                             (assumes the macOS Chrome path; override with env CHROME)
 motion-defs/<model>.py      Motion definitions (creative content, one file per model)
                             [git-ignored; only the bundled sample is tracked]

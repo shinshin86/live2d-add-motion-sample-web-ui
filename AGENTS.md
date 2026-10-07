@@ -89,6 +89,22 @@ engine; do not edit it when switching models.
 - Register new motions into the `Action` group; never change the existing
   groups.
 - Actions use `Loop: false` with FadeIn/Out of 0.2–0.5 s.
+- Exception: **loop motions** (`motion(..., loop=True)` + `curve(..., loop=True)`),
+  e.g. an emotion held while the character speaks. See README "Loop motions".
+  - Every curve ends on its first value; the generator gives the keys
+    periodic tangents so the speed carries through the seam. They do not
+    need to start/end at the base pose (the validator checks the seam
+    instead: same value and same slope at both ends).
+  - Put seams mid-swing, not at extremes: if every curve is at rest at the
+    seam, the loop visibly stops for a moment each cycle.
+  - Give all oscillating curves periods of Duration/n so they meet at the seam.
+  - Leave the LipSync parameters (`analyze_model.py` lists them) out, and
+    bake blinks into the EyeOpen curves (auto-blink pauses during motions).
+  - The Cubism Framework ignores `Meta.Loop`: the player must call
+    `setIsLoop(true)` and `setIsLoopFadeIn(false)` before starting it.
+    `index.html` (`playMotion`) is the reference implementation.
+  - Verify with `tools/verify_browser.sh --loop Action:<n>`: the shots on
+    both sides of each seam must match and still show the loop's expression.
 - Arm/hand parameters are often hard to interpret. If no natural continuous
   parameter can be confirmed, skip large arm gestures and express with the
   face and body instead.
@@ -122,6 +138,9 @@ curves use the parameters.
 | `&freeze=1.2` | Pin the pose at that many seconds after playback starts (rendering continues) |
 | `?uitest=1` | Run a synthetic drag/zoom event test; results appear in the status bar |
 | `?model=<path>` | Load the given model instead of model.config.json |
+| `&cycles=3` | End a loop motion after its 3rd cycle |
+| `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame) |
+| `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh) |
 
 ## Headless-browser verification pitfalls (measured; important)
 
@@ -134,8 +153,12 @@ curves use the parameters.
   readable from the image).
 - WebGL fails to initialize with `--disable-gpu`. Use
   `--use-angle=swiftshader-webgl --enable-unsafe-swiftshader`.
-- Screenshots may be taken right after network idle. To verify "what it looks
-  like at N seconds", never rely on sleeps — pin the pose with `&freeze=`.
+- Screenshots are taken as soon as the window "load" event fires (about 2 s
+  after start), which is before `&freeze=` kicks in. To verify "what it looks
+  like at N seconds", pin the pose with `&freeze=N` and keep "load" pending
+  with `&hold=N+4` (the page then requests `/__verify_hold`, which the
+  script's own server answers only after that many seconds). Never rely on
+  sleeps.
 - If the canvas comes out blank: `PIXI.Application` needs
   `preserveDrawingBuffer: true` (already set in index.html). Freezing by
   stopping the ticker does not show up in screenshots — that is why freeze
