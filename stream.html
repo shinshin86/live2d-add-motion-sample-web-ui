@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live2D 配信</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    #stage { width: 100%; height: 100%; }
+    #stage canvas { display: block; }
+    #status {
+      position: fixed; left: 8px; bottom: 8px; padding: 4px 10px; font: 12px sans-serif;
+      color: #fff; background: rgba(0, 0, 0, 0.6); border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Streaming page for OBS (browser source): only the avatar on a transparent,
+       green or blue background (?bg=green|blue|<hex>). It mirrors the control page
+       (index.html) through tools/serve.py; &status=1 shows the connection state. -->
+  <div id="stage"></div>
+  <div id="status" hidden></div>
+
+  <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+  <script type="module" src="web/stream.js"></script>
+</body>
+</html>

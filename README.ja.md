@@ -54,7 +54,7 @@ python3 tools/setup_model.py <モデルのzipまたはフォルダ>   # 配置 +
 python3 tools/gen_motions.py        # モーション生成 + 登録
 python3 tools/validate_motions.py   # 検証(「OK」が出ること)
 
-python3 -m http.server 8765         # サーバー起動
+python3 tools/serve.py              # サーバー起動(8765番が使用中なら --port 8766 を付ける)
 # → http://localhost:8765
 ```
 
@@ -67,7 +67,8 @@ python3 -m http.server 8765         # サーバー起動
 - カードは「単発アクション」と「ループ」に分かれています。再生中のモーションはボタンが強調され、単発なら「▶ 再生中」、ループなら点滅する「⟳ ループ中」と表示されます
 - ループは「■ ループ停止」を押すか、別のモーションを再生するまで繰り返します。「ループ停止」はループの再生中だけ押せます
 - 「リップシンク」欄を使うと、単発の表情にもループにも口の動きを重ねて、話しているときの見た目を確認できます。OFF(モーション自身の口の動き)、疑似(一定のリズム)、音声(ドロップまたは選択した音声ファイルの大きさに合わせる)、マイク(自分の声に合わせる)から選べます
-- デバッグ用クエリパラメータ: `?play=Action:0`(自動再生)/ `&freeze=1.2`(指定秒でポーズ固定)/ `&cycles=3`(ループモーションを3周で終了)/ `&lipsync=1`(疑似リップシンク。`&lipsync=mic` でマイク)/ `&audio=<URL>`(音声ファイルでリップシンク)/ `?uitest=1`(ドラッグ・ズームの自動テスト)
+- 「カメラ」欄では自分の顔の動きでアバターを動かせます。「配信モード」欄では、アバターだけを OBS に表示できます。詳しくは[カメラと配信モード](#カメラと配信モード)を参照してください
+- デバッグ用クエリパラメータ: `?play=Action:0`(自動再生)/ `&freeze=1.2`(指定秒でポーズ固定)/ `&cycles=3`(ループモーションを3周で終了)/ `&lipsync=1`(疑似リップシンク。`&lipsync=mic` でマイク)/ `&audio=<URL>`(音声ファイルでリップシンク)/ `&camera=1`(読み込み時にカメラを開始)/ `&fakeface=1`(カメラを使わず合成した顔の動きで動かす)/ `?uitest=1`(ドラッグ・ズームの自動テスト)
 
 ## 自分でモーションを追加するには
 
@@ -134,11 +135,34 @@ tools/verify_browser.sh --loop Action:1   # 1〜3周目の継ぎ目の前後と�
 
 継ぎ目の直前と直後の画像がほぼ同じで、ループの表情が保たれていれば問題ありません。WebUI では `?play=Action:1&cycles=3&lipsync=1` で、疑似リップシンク付きで3周再生してから止まります。
 
+## カメラと配信モード
+
+### カメラ
+
+「カメラ」欄の「● カメラ開始」を押すと、頭の向き、目の開閉、視線、口、眉、笑顔にアバターが合わせて動きます。最初に映った顔を正面の基準にします。基準を取り直すときは「正面をリセット」を押してください。感度、なめらかさ、左右反転も調整できます。
+
+顔の動きは、再生中のモーションに重ねて反映されます。たとえば悲しいループを再生すると、眉は悲しい形のまま、頭と口は自分の動きに合わせて動きます。
+
+カメラの映像はブラウザ内(MediaPipe Face Landmarker を動かす Web Worker)で処理し、どこにも送信しません。MediaPipe 本体は jsDelivr から読み込み、バージョンを 0.10.21 に固定しています(これより新しい版には外部サービスへの計測送信が含まれるため)。顔検出のモデルは `vendor/mediapipe/` に同梱しています。
+
+### 配信モード(OBS)
+
+1. `python3 tools/serve.py` でサーバーを起動します。配信モードにはこのサーバーが必要で、`python3 -m http.server` では中継できません
+2. 「配信モード」欄で背景(透明・緑・青)を選び、`stream.html` の URL をコピーします
+3. OBS で「ブラウザ」ソースを追加し、その URL を指定します
+
+`stream.html` にはアバターだけが表示されます。操作ページで再生したモーション、カメラの顔の動き、リップシンクが、ローカルサーバーを通して反映されます。中継するのはこれらのパラメータだけで、カメラやマイクのデータは送りません。サーバーは 127.0.0.1 でのみ待ち受けます。
+
 ## リポジトリ構成
 
 ```
 index.html                  WebUI(静的HTML、ビルド不要)。model.config.json からモデルを解決
+stream.html                 配信用ページ(アバターのみ。OBS 向け)
+web/                        WebUI のモジュール(JSDoc で型を付けた JavaScript。ビルド不要):
+                            カメラトラッキング、配信の中継、ループ再生
+vendor/mediapipe/           カメラトラッキングで使う MediaPipe の顔検出モデル(Apache-2.0)
 tools/
+  serve.py                  ローカルサーバー(静的ファイルの配信と stream.html への中継)
   setup_model.py            モデル配置(zip/フォルダ → models/)+ model.config.json 生成
   analyze_model.py          パラメータ・値域・物理出力の分析
   gen_motions.py            生成エンジン(モデル非依存)。定義から生成+登録(冪等)
@@ -159,3 +183,4 @@ local-assets/ , models/     [git管理外] Live2Dモデルデータ(ライセン
 - **Live2Dサンプルモデル「ひより」**: [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_jp.html) の対象で再配布不可のため非同梱です。各自[公式配布ページ](https://www.live2d.com/learn/sample/momose-hiyori/)から入手してください。READMEのスクリーンショットに含まれるモデルの著作権はLive2D社に帰属します。
 - **Live2D Cubism Core**(`live2dcubismcore.min.js`): WebUIがLive2D公式CDNから読み込みます([Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_jp.html))。本リポジトリはCore自体を再配布していません。組み込んだ製品を事業として公開する場合は、事業規模により[出版許諾契約](https://www.live2d.com/sdk/license/)が必要になることがあります。
 - **PixiJS / pixi-live2d-display**: CDNから読み込み(いずれもMITライセンス)。
+- **MediaPipe**(`@mediapipe/tasks-vision` と Face Landmarker のモデル): Apache License 2.0。本体は jsDelivr から読み込み、モデルとライセンス文は `vendor/mediapipe/` に同梱しています。

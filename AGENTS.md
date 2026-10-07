@@ -35,8 +35,8 @@ In that case, execute the following autonomously:
 7. **Visual check** — take screenshots with `tools/verify_browser.sh` and
    confirm with your own eyes that the expressions and poses look right
    (if the character stays in the base pose, playback failed).
-8. **Hand over** — start `python3 -m http.server 8765` and tell the user to
-   check http://localhost:8765.
+8. **Hand over** — start `python3 tools/serve.py` (add `--port N` if 8765 is
+   taken) and tell the user to check http://localhost:8765.
 
 Deciding *what* to make (which expressions are feasible, which parameters to
 use) is the agent's job. Everything mechanical is done by the tools.
@@ -45,7 +45,15 @@ use) is the agent's job. Everything mechanical is done by the tools.
 
 ```
 index.html                 WebUI (static HTML); resolves the model via model.config.json
+stream.html                Streaming page for OBS (avatar only), mirrored from index.html
+web/                       WebUI modules: plain JavaScript with JSDoc types (`// @ts-check`),
+                           no build step. tracking*.js / camera.js / live2d-face.js: camera
+                           face tracking; relay.js / stream.js: streaming; motion-player.js:
+                           loop playback
+vendor/mediapipe/          MediaPipe face model + license (the runtime comes from jsDelivr,
+                           pinned to 0.10.21; do not upgrade without checking for telemetry)
 tools/
+  serve.py                 Local server: static files + relay to stream.html (+ verify hold)
   setup_model.py           Place a model (zip/folder → models/) + generate model.config.json
   analyze_model.py         Print parameters, safe ranges, physics outputs, base pose
   gen_motions.py           Generation engine (model-agnostic, no editing needed);
@@ -141,7 +149,10 @@ curves use the parameters.
 | `&cycles=3` | End a loop motion after its 3rd cycle |
 | `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame); `&lipsync=mic` uses the microphone |
 | `&audio=<url>` | Lip-sync to an audio file (loudness of the playing audio) |
-| `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh) |
+| `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh; also on stream.html) |
+| `&camera=1` | Start the camera on load |
+| `&fakeface=1` | Drive the face with synthetic tracking results (no camera) |
+| `stream.html?bg=green&status=1` | Streaming page: background (transparent by default, `green`, `blue`, `<hex>`); `status=1` shows the relay state |
 
 ## Headless-browser verification pitfalls (measured; important)
 
@@ -160,6 +171,16 @@ curves use the parameters.
   with `&hold=N+4` (the page then requests `/__verify_hold`, which the
   script's own server answers only after that many seconds). Never rely on
   sleeps.
+- Run **one headless Chrome at a time** and never pass a fresh
+  `--user-data-dir`: concurrent instances hand off to the first one and exit
+  without a screenshot, and on macOS a new profile shows Chrome's first-run
+  "Welcome" dialog on the user's screen (even with `--no-first-run`). To check
+  the streaming relay, open one page and drive or read the relay with
+  `curl` / a small script (`POST /live/send`, `GET /live/events`).
+- Camera checks headless: `--use-fake-device-for-media-stream
+  --use-fake-ui-for-media-stream` gives a camera without a face, so it only
+  proves that MediaPipe loads ("顔が見つかりません"); use `&fakeface=1` to check
+  how faces drive the model. Real cameras need a manual check.
 - If the canvas comes out blank: `PIXI.Application` needs
   `preserveDrawingBuffer: true` (already set in index.html). Freezing by
   stopping the ticker does not show up in screenshots — that is why freeze

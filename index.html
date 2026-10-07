@@ -100,21 +100,36 @@
     #loopControls button:disabled { opacity: 0.35; cursor: default; }
     #stopLoop:not(:disabled) { color: #1f2130; background: #ff9f8f; border-color: #ff9f8f; font-weight: 600; }
     #stopLoop:not(:disabled):hover { background: #ffb6a9; }
-    /* Lip sync panel */
-    #lipsyncPanel {
+    /* Tool cards: camera, streaming, lip sync */
+    .tool-card {
       background: #262838; border: 1px solid #3a3d52; border-radius: 12px; padding: 12px;
       display: grid; gap: 8px;
     }
-    #lipsyncPanel.dragover { border-color: #7fd6b0; background: #2c3a3a; }
-    #lipsyncPanel .card-title { font-size: 12px; font-weight: 600; color: #cfd3e6; }
-    #lipsyncPanel .card-title small { font-weight: 400; color: #8f95ac; margin-left: 6px; }
-    #lipsyncModes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-    #lipsyncModes button {
+    .tool-card .card-title { font-size: 12px; font-weight: 600; color: #cfd3e6; }
+    .tool-card .card-title small { font-weight: 400; color: #8f95ac; margin-left: 6px; }
+    .tool-card .note { font-size: 10px; color: #8f95ac; min-height: 1em; line-height: 1.6; }
+    .tool-card .note.warn { color: #ffb6a9; }
+    .choices { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
+    .choices button, .tool-card .action {
       padding: 6px 2px; font-size: 11px; color: #cfd3e6; cursor: pointer;
       background: #2c2f44; border: 1px solid #565c85; border-radius: 7px;
     }
-    #lipsyncModes button:hover { background: #3a3f63; }
-    #lipsyncModes button[aria-pressed="true"] { color: #1f2130; background: #7fd6b0; border-color: #7fd6b0; font-weight: 600; }
+    .choices button:hover, .tool-card .action:hover:not(:disabled) { background: #3a3f63; }
+    .tool-card .action:disabled { opacity: 0.35; cursor: default; }
+    .choices button[aria-pressed="true"], .tool-card .action.on {
+      color: #1f2130; background: #7fd6b0; border-color: #7fd6b0; font-weight: 600;
+    }
+    #lipsyncPanel.dragover { border-color: #7fd6b0; background: #2c3a3a; }
+    #cameraPreview { width: 100%; border-radius: 8px; transform: scaleX(-1); background: #1f2130; }
+    #cameraPreview.unmirrored { transform: none; }
+    .slider { display: grid; grid-template-columns: 5.5em 1fr; align-items: center; font-size: 11px; color: #b6bccf; }
+    .check { font-size: 11px; color: #b6bccf; display: flex; gap: 6px; align-items: center; }
+    .url-row { display: grid; grid-template-columns: 1fr auto auto; gap: 4px; }
+    .url-row input {
+      min-width: 0; padding: 5px 6px; font-size: 10px; color: #cfd3e6;
+      background: #1f2130; border: 1px solid #3a3d52; border-radius: 6px;
+    }
+    .url-row .action { padding: 5px 8px; }
     #audioDrop {
       display: block; padding: 10px; font-size: 11px; color: #9aa0b5; text-align: center;
       border: 1px dashed #565c85; border-radius: 8px; cursor: pointer;
@@ -138,9 +153,35 @@
       <h1>Live2D モーション再生</h1>
       <p class="sub">ボタンでモーションを手動再生できます</p>
     </div>
-    <div id="lipsyncPanel">
+    <div id="cameraPanel" class="tool-card">
+      <div class="card-title">カメラ<small>顔の動きでアバターを動かします</small></div>
+      <div class="choices">
+        <button id="cameraToggle" class="action">● カメラ開始</button>
+        <button id="calibrate" class="action" disabled>正面をリセット</button>
+      </div>
+      <video id="cameraPreview" muted playsinline hidden></video>
+      <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="2" step="0.05" value="1"></label>
+      <label class="slider">なめらかさ <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.35"></label>
+      <label class="check"><input type="checkbox" id="mirror" checked> 鏡のように動かす(左右反転)</label>
+      <div id="cameraNote" class="note">カメラ映像はブラウザの中だけで処理され、外部には送信されません</div>
+    </div>
+    <div id="streamPanel" class="tool-card">
+      <div class="card-title">配信モード<small>OBS のブラウザソースで表示</small></div>
+      <div class="choices" id="streamBg">
+        <button data-bg="" aria-pressed="true">透明</button>
+        <button data-bg="green" aria-pressed="false">緑</button>
+        <button data-bg="blue" aria-pressed="false">青</button>
+      </div>
+      <div class="url-row">
+        <input id="streamUrl" readonly aria-label="配信ページの URL">
+        <button id="copyStreamUrl" class="action">コピー</button>
+        <button id="openStream" class="action">開く</button>
+      </div>
+      <div id="streamNote" class="note"></div>
+    </div>
+    <div id="lipsyncPanel" class="tool-card">
       <div class="card-title">リップシンク<small>どの表情・ループにも重ねられます</small></div>
-      <div id="lipsyncModes">
+      <div id="lipsyncModes" class="choices">
         <button data-mode="off" aria-pressed="true">OFF</button>
         <button data-mode="sine" aria-pressed="false">疑似</button>
         <button data-mode="audio" aria-pressed="false">音声</button>
@@ -184,20 +225,16 @@
   <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
-  <script>
-    const status = document.getElementById("status");
+  <script type="module">
+    import "./web/verify-hold.js";
+    import { CameraCapture } from "./web/camera.js";
+    import { startFakeFace } from "./web/fake-face.js";
+    import { attachFaceDriver } from "./web/live2d-face.js";
+    import { createMotionPlayer } from "./web/motion-player.js";
+    import { relayAvailable, sendRelay } from "./web/relay.js";
+    import { FacePose } from "./web/tracking.js";
 
-    // Headless verification (tools/verify_browser.sh): Chrome takes its
-    // screenshot when "load" fires, so &hold=N keeps "load" pending with a
-    // request that only the verify server answers after N seconds (any other
-    // server answers 404 at once, so this is harmless outside verification).
-    const hold = Number(new URLSearchParams(location.search).get("hold"));
-    if (hold > 0) {
-      const img = document.createElement("img");
-      img.hidden = true;
-      img.src = `__verify_hold?s=${hold}`;
-      document.body.appendChild(img);
-    }
+    const status = document.getElementById("status");
 
     // The model is resolved from model.config.json (generated by tools/setup_model.py).
     // It can be overridden with ?model=<path to model3.json>.
@@ -288,33 +325,11 @@
       const NEW_GROUP = "Action"; // group of motions added by this repo (JSON only)
       const mm = model.internalModel.motionManager;
 
-      // ---- Loop playback (reference implementation for apps; no library changes).
-      // The Cubism Framework does not read Meta.Loop, so the player enables
-      // looping on the motion instance itself, before it starts:
-      //   setIsLoop(true)        wrap time back to 0 at Duration (never finishes)
-      //   setIsLoopFadeIn(false) no fade-in restart per cycle (it would stall
-      //                          the motion at every seam)
-      // Only the Action group (generated here) is looped: Editor-exported
-      // motions often carry Meta.Loop=true without actually being seamless.
-      const metaLoop = {};
-      async function isLoopMotion(group, index) {
-        const key = `${group}:${index}`;
-        if (!(key in metaLoop)) {
-          const entry = groups[group][index];
-          const res = await fetch(settings.resolveURL(entry.File));
-          metaLoop[key] = group === NEW_GROUP && !!(await res.json()).Meta.Loop;
-        }
-        return metaLoop[key];
-      }
-      async function prepareMotion(group, index) {
-        const loop = await isLoopMotion(group, index);
-        const motion = await mm.loadMotion(group, index); // cached instance pixi will play
-        if (motion) {
-          motion.setIsLoop(loop);
-          motion.setIsLoopFadeIn(false);
-        }
-        return { motion, loop };
-      }
+      // Loop playback lives in web/motion-player.js (shared with stream.html)
+      const player = createMotionPlayer(model);
+      const isLoopMotion = player.isLoopMotion;
+      // Streaming: motion commands and the face/mouth go to stream.html through tools/serve.py
+      const relayOn = await relayAvailable();
       let current = null; // the running loop: { motion, label, duration, startedAt }
       let frozen = false; // set by the &freeze= debug hook
       const stopLoop = document.getElementById("stopLoop");
@@ -330,8 +345,8 @@
         stopLoop.disabled = !(key && loop);
       }
       async function playMotion(group, index, label) {
-        const { motion, loop } = await prepareMotion(group, index);
-        const ok = await model.motion(group, index, PIXI.live2d.MotionPriority.FORCE);
+        const { ok, loop, motion } = await player.play(group, index);
+        if (ok && relayOn) sendRelay({ type: "motion", group, index });
         current = ok && loop
           ? { motion, label, duration: motion.getLoopDuration(), startedAt: performance.now() }
           : null;
@@ -341,7 +356,8 @@
       // Stop now: the idle fades in from the current pose
       stopLoop.onclick = () => {
         current = null;
-        mm.stopAllMotions();
+        player.stop();
+        if (relayOn) sendRelay({ type: "stop" });
         showPlaying(null, false);
         status.textContent = "ループを停止しました";
       };
@@ -470,6 +486,125 @@
       });
       setLipsyncMode("off");
 
+      // ---- Camera face tracking (web/tracking.js, web/camera.js): frames are
+      // processed in a worker inside the browser; only face parameters come back.
+      const facePose = new FacePose();
+      const faceDriver = attachFaceDriver(model);
+      const preview = document.getElementById("cameraPreview");
+      const cameraToggle = document.getElementById("cameraToggle");
+      const calibrateButton = document.getElementById("calibrate");
+      const cameraNote = document.getElementById("cameraNote");
+      const mirror = document.getElementById("mirror");
+      const sensitivity = document.getElementById("sensitivity");
+      const smoothing = document.getElementById("smoothing");
+      const CAMERA_NOTES = {
+        stopped: "カメラ映像はブラウザの中だけで処理され、外部には送信されません",
+        starting: "カメラと顔検出モデルを準備しています…",
+        running: "トラッキング中",
+        cameraBlocked: "カメラの使用が許可されていません(ブラウザの設定を確認してください)",
+        cameraUnavailable: "カメラが見つかりません",
+        modelError: "顔検出モデルを読み込めませんでした(ネットワーク接続を確認してください)",
+      };
+      let cameraState = "stopped";
+      let calibrated = false;
+      let stopFake = null;
+      const onFace = (result, now) => {
+        facePose.update(result, now);
+        // the first face seen becomes the neutral, front-facing face
+        if (!calibrated && facePose.calibrate(now)) calibrated = true;
+      };
+      const camera = new CameraCapture(preview, onFace, (state) => {
+        cameraState = state;
+        const active = state === "starting" || state === "running";
+        cameraToggle.textContent = active ? "■ カメラ停止" : "● カメラ開始";
+        cameraToggle.classList.toggle("on", active);
+        calibrateButton.disabled = state !== "running";
+        preview.hidden = !active;
+        cameraNote.textContent = CAMERA_NOTES[state];
+        cameraNote.classList.toggle("warn", ["cameraBlocked", "cameraUnavailable", "modelError"].includes(state));
+        if (!active) {
+          facePose.reset();
+          calibrated = false;
+        }
+      });
+      cameraToggle.onclick = () => {
+        if (cameraState === "starting" || cameraState === "running") camera.stop();
+        else void camera.start();
+      };
+      calibrateButton.onclick = () => {
+        if (facePose.calibrate(performance.now())) cameraNote.textContent = "今の顔の向きを正面にしました";
+      };
+      mirror.onchange = () => preview.classList.toggle("unmirrored", !mirror.checked);
+
+      // ---- Streaming mode: stream.html shows only the avatar for OBS
+      const streamUrl = document.getElementById("streamUrl");
+      const streamNote = document.getElementById("streamNote");
+      let streamBg = "";
+      function updateStreamUrl() {
+        const url = new URL("stream.html", location.href);
+        if (streamBg) url.searchParams.set("bg", streamBg);
+        const model3 = new URLSearchParams(location.search).get("model");
+        if (model3) url.searchParams.set("model", model3);
+        streamUrl.value = url.href;
+      }
+      document.getElementById("streamBg").onclick = (e) => {
+        if (e.target.dataset.bg === undefined) return;
+        streamBg = e.target.dataset.bg;
+        for (const b of document.querySelectorAll("#streamBg button")) {
+          b.setAttribute("aria-pressed", String(b.dataset.bg === streamBg));
+        }
+        updateStreamUrl();
+      };
+      document.getElementById("copyStreamUrl").onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(streamUrl.value);
+          streamNote.textContent = "URL をコピーしました。OBS の「ブラウザ」ソースに貼り付けてください";
+        } catch {
+          streamUrl.select();
+          streamNote.textContent = "コピーできませんでした。URL を選択したので手動でコピーしてください";
+        }
+      };
+      document.getElementById("openStream").onclick = () => window.open(streamUrl.value, "_blank");
+      updateStreamUrl();
+      streamNote.textContent = relayOn
+        ? "このページで再生したモーション・カメラ・リップシンクが配信ページに反映されます"
+        : "配信モードを使うには python3 tools/serve.py でサーバーを起動してください";
+      streamNote.classList.toggle("warn", !relayOn);
+
+      // Every frame: drive the model with the face, and mirror the pose to stream.html
+      let lastFrame = performance.now();
+      let lastSent = 0;
+      let sentIdle = true;
+      app.ticker.add(() => {
+        const now = performance.now();
+        const dt = (now - lastFrame) / 1000;
+        lastFrame = now;
+        const tracking = cameraState === "running" || stopFake;
+        let face = null;
+        let weight = 0;
+        if (tracking || facePose.weight > 0) {
+          const sampled = facePose.sample(now, dt, {
+            mirror: mirror.checked, sensitivity: Number(sensitivity.value), smoothing: Number(smoothing.value),
+          });
+          face = sampled.params;
+          weight = sampled.weight;
+          if (cameraState === "running") {
+            cameraNote.textContent = sampled.tracking ? CAMERA_NOTES.running : "顔が見つかりません(カメラの正面に顔を入れてください)";
+          }
+        }
+        faceDriver.set(weight > 0 ? face : null, weight);
+        if (!relayOn || now - lastSent < 1000 / 30) return;
+        const mouth = lipsync.mode === "off" ? null : lipsync.level;
+        if (weight > 0 || mouth !== null) {
+          sendRelay({ type: "pose", face: weight > 0 ? face : null, weight, mouth });
+          lastSent = now;
+          sentIdle = false;
+        } else if (!sentIdle) {
+          sendRelay({ type: "pose", face: null, weight: 0, mouth: null });
+          sentIdle = true;
+        }
+      });
+
       function motionButton(group, entry, index) {
         const btn = document.createElement("button");
         btn.className = "motion" + (group === NEW_GROUP ? " new" : "");
@@ -537,6 +672,10 @@
       // &cycles=N ends a loop motion after its Nth cycle, &lipsync=1 turns on the simulated lip sync
       // (&lipsync=mic: microphone), &audio=<url> lip-syncs to an audio file
       const params = new URLSearchParams(location.search);
+      // &fakeface=1 drives the face with synthetic tracking results (no camera)
+      if (params.get("fakeface")) stopFake = startFakeFace(onFace);
+      // &camera=1 starts the camera on load
+      if (params.get("camera")) void camera.start();
       if (params.get("audio")) loadAudio(params.get("audio"));
       else if (params.get("lipsync") === "mic") setLipsyncMode("mic");
       else if (params.get("lipsync")) setLipsyncMode("sine");

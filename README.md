@@ -54,7 +54,7 @@ python3 tools/setup_model.py <model zip or folder>   # place model + generate mo
 python3 tools/gen_motions.py        # generate + register motions
 python3 tools/validate_motions.py   # validate (should print "OK")
 
-python3 -m http.server 8765         # serve
+python3 tools/serve.py              # serve (add --port 8766 if 8765 is taken)
 # → http://localhost:8765
 ```
 
@@ -67,7 +67,8 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)
 - A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
 - "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
-- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `?uitest=1` (automated drag/zoom test)
+- "カメラ" (camera) moves the avatar with your face, and "配信モード" (streaming mode) shows it alone for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)
+- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `?uitest=1` (automated drag/zoom test)
 
 ## Adding your own motions
 
@@ -134,11 +135,34 @@ tools/verify_browser.sh --loop Action:1   # both sides of the 1st-3rd seams + a 
 
 The shots taken just before and after each seam should look alike and still show the loop's expression. In the WebUI, `?play=Action:1&cycles=3&lipsync=1` plays three cycles with simulated lip sync and then stops.
 
+## Camera tracking and streaming
+
+### Camera
+
+Press "● カメラ開始" (start camera) in the "カメラ" card. The avatar follows your head, eyes, gaze, mouth, brows and smile. The face you show first is taken as the front-facing, relaxed face; "正面をリセット" sets it again. Sensitivity, smoothing and mirroring can be adjusted.
+
+The face is layered on top of the playing motion: play an emotion such as a sad loop and the sad brows stay while your head and mouth move the avatar.
+
+Camera frames are processed in the browser (a Web Worker running MediaPipe Face Landmarker) and are never sent anywhere. The MediaPipe runtime is loaded from jsDelivr, pinned to version 0.10.21 (later versions add metrics reporting to an external service), and the face model is bundled in `vendor/mediapipe/`.
+
+### Streaming mode (OBS)
+
+1. Start the server with `python3 tools/serve.py`. The streaming mode needs it; `python3 -m http.server` cannot relay
+2. In the "配信モード" card, choose the background (transparent, green or blue) and copy the URL of `stream.html`
+3. In OBS, add a "Browser" source with that URL
+
+`stream.html` shows only the avatar. Motions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only these parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
+
 ## Repository layout
 
 ```
 index.html                  WebUI (static HTML, no build step); resolves the model via model.config.json
+stream.html                 Streaming page (avatar only, for OBS)
+web/                        WebUI modules (plain JavaScript with JSDoc types; no build step):
+                            camera tracking, streaming relay, loop playback
+vendor/mediapipe/           MediaPipe face model (Apache-2.0) used by the camera tracking
 tools/
+  serve.py                  Local server: static files + relay to stream.html
   setup_model.py            Place a model (zip/folder → models/) + generate model.config.json
   analyze_model.py          Analyze parameters, value ranges, physics outputs
   gen_motions.py            Generation engine (model-agnostic); builds + registers motions from definitions (idempotent)
@@ -161,3 +185,4 @@ The following are NOT covered by MIT and are subject to their own licenses:
 - **Live2D sample model "Hiyori"**: covered by the [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html); redistribution is prohibited, so it is not included here. Download it yourself from the [official distribution page](https://www.live2d.com/en/learn/sample/momose-hiyori/). The copyright of the model shown in the README screenshot belongs to Live2D Inc.
 - **Live2D Cubism Core** (`live2dcubismcore.min.js`): loaded by the WebUI from the official Live2D CDN ([Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)). This repository does not redistribute the Core itself. If you release a product embedding the SDK as a business, a [publication license](https://www.live2d.com/en/sdk/license/) may be required depending on your business scale.
 - **PixiJS / pixi-live2d-display**: loaded from CDNs (both MIT licensed).
+- **MediaPipe** (`@mediapipe/tasks-vision` and the Face Landmarker model): Apache License 2.0. The runtime is loaded from jsDelivr; the model and its license are in `vendor/mediapipe/`.
