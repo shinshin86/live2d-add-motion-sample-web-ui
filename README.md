@@ -65,8 +65,9 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
 - **Drag** the avatar to move it, **mouse wheel / pinch** to zoom around the cursor, and "Reset view" to restore the initial placement
 - The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)
-- A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion. "疑似リップシンク: ON/OFF" (simulated lip sync) moves the mouth as if speaking, to check that the loop and lip sync coexist
-- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync on), `?uitest=1` (automated drag/zoom test)
+- A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
+- "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
+- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `?uitest=1` (automated drag/zoom test)
 
 ## Adding your own motions
 

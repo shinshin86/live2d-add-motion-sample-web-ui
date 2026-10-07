@@ -139,7 +139,8 @@ curves use the parameters.
 | `?uitest=1` | Run a synthetic drag/zoom event test; results appear in the status bar |
 | `?model=<path>` | Load the given model instead of model.config.json |
 | `&cycles=3` | End a loop motion after its 3rd cycle |
-| `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame) |
+| `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame); `&lipsync=mic` uses the microphone |
+| `&audio=<url>` | Lip-sync to an audio file (loudness of the playing audio) |
 | `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh) |
 
 ## Headless-browser verification pitfalls (measured; important)

@@ -91,7 +91,7 @@
     button.motion.looping { border-color: #7fd6b0; box-shadow: 0 0 0 1px #7fd6b0 inset; animation: pulse 1.6s ease-in-out infinite; }
     button.motion.looping .state { color: #7fd6b0; }
     @keyframes pulse { 50% { background: #3a6b5c; } }
-    #loopControls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+    #loopControls { display: grid; gap: 6px; margin-top: 8px; }
     #loopControls button {
       padding: 7px 8px; font-size: 11px; color: #cfd3e6; border-radius: 8px;
       background: #2c2f44; border: 1px solid #565c85; cursor: pointer;
@@ -100,7 +100,30 @@
     #loopControls button:disabled { opacity: 0.35; cursor: default; }
     #stopLoop:not(:disabled) { color: #1f2130; background: #ff9f8f; border-color: #ff9f8f; font-weight: 600; }
     #stopLoop:not(:disabled):hover { background: #ffb6a9; }
-    #lipsyncToggle[aria-pressed="true"] { color: #1f2130; background: #7fd6b0; border-color: #7fd6b0; font-weight: 600; }
+    /* Lip sync panel */
+    #lipsyncPanel {
+      background: #262838; border: 1px solid #3a3d52; border-radius: 12px; padding: 12px;
+      display: grid; gap: 8px;
+    }
+    #lipsyncPanel.dragover { border-color: #7fd6b0; background: #2c3a3a; }
+    #lipsyncPanel .card-title { font-size: 12px; font-weight: 600; color: #cfd3e6; }
+    #lipsyncPanel .card-title small { font-weight: 400; color: #8f95ac; margin-left: 6px; }
+    #lipsyncModes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    #lipsyncModes button {
+      padding: 6px 2px; font-size: 11px; color: #cfd3e6; cursor: pointer;
+      background: #2c2f44; border: 1px solid #565c85; border-radius: 7px;
+    }
+    #lipsyncModes button:hover { background: #3a3f63; }
+    #lipsyncModes button[aria-pressed="true"] { color: #1f2130; background: #7fd6b0; border-color: #7fd6b0; font-weight: 600; }
+    #audioDrop {
+      display: block; padding: 10px; font-size: 11px; color: #9aa0b5; text-align: center;
+      border: 1px dashed #565c85; border-radius: 8px; cursor: pointer;
+    }
+    #audioDrop:hover { background: #2c2f44; }
+    #lipsyncAudio { width: 100%; height: 32px; }
+    #lipsyncNote { font-size: 10px; color: #8f95ac; min-height: 1em; }
+    #lipsyncMeter { height: 6px; background: #1f2130; border-radius: 99px; overflow: hidden; }
+    #lipsyncMeter div { height: 100%; width: 0; background: #7fd6b0; }
     #status {
       position: absolute; left: 12px; bottom: 12px; padding: 6px 12px;
       font-size: 12px; color: #cfd3e6; background: rgba(20, 21, 32, 0.75);
@@ -115,6 +138,23 @@
       <h1>Live2D モーション再生</h1>
       <p class="sub">ボタンでモーションを手動再生できます</p>
     </div>
+    <div id="lipsyncPanel">
+      <div class="card-title">リップシンク<small>どの表情・ループにも重ねられます</small></div>
+      <div id="lipsyncModes">
+        <button data-mode="off" aria-pressed="true">OFF</button>
+        <button data-mode="sine" aria-pressed="false">疑似</button>
+        <button data-mode="audio" aria-pressed="false">音声</button>
+        <button data-mode="mic" aria-pressed="false">マイク</button>
+      </div>
+      <div id="lipsyncAudioRow" hidden>
+        <label id="audioDrop">音声ファイルをここにドロップ、またはクリックして選択
+          <input type="file" id="audioFile" accept="audio/*" hidden>
+        </label>
+        <audio id="lipsyncAudio" controls hidden></audio>
+      </div>
+      <div id="lipsyncMeter" title="口の開き"><div></div></div>
+      <div id="lipsyncNote"></div>
+    </div>
     <div id="newActions">
       <div class="card-title">今回追加したモーション <span class="badge">Action</span></div>
       <div class="section">
@@ -128,7 +168,6 @@
         <div class="grid" id="loopButtons"></div>
         <div id="loopControls">
           <button id="stopLoop" disabled>■ ループ停止</button>
-          <button id="lipsyncToggle" aria-pressed="false">疑似リップシンク: OFF</button>
         </div>
       </div>
     </div>
@@ -317,24 +356,119 @@
         if (status.textContent !== text) status.textContent = text;
       });
 
-      // ---- Simulated lip sync: overwrite the LipSync parameters every frame after
-      // the motion update, which is where a real player writes its audio level
+      // ---- Lip sync (reference for apps): write the LipSync parameters every frame
+      // after the motion update ("beforeModelUpdate"), so they override any mouth
+      // movement in the motion itself. The mouth follows a simulated rhythm, or the
+      // loudness (RMS) of an audio file / the microphone via a Web Audio AnalyserNode.
       const lipsyncIds = (model.internalModel.settings.groups || [])
         .find((g) => g.Name === "LipSync")?.Ids || [];
-      const lipsyncToggle = document.getElementById("lipsyncToggle");
-      let lipsyncOn = false;
-      function setLipsync(on) {
-        lipsyncOn = on;
-        lipsyncToggle.setAttribute("aria-pressed", String(on));
-        lipsyncToggle.textContent = `疑似リップシンク: ${on ? "ON" : "OFF"}`;
+      const lipsync = { mode: "off", level: 0, ctx: null, analyser: null, buf: null, fileSource: null, mic: null };
+      const audioEl = document.getElementById("lipsyncAudio");
+      const lipsyncNote = document.getElementById("lipsyncNote");
+      const meter = document.querySelector("#lipsyncMeter div");
+      const NOTES = {
+        off: "OFF のときは、モーション自身の口の動きのまま再生されます",
+        sine: "一定のリズムで口を開閉します",
+        audio: "音声の大きさに合わせて口が動きます",
+        mic: "マイクに向かって話すと口が動きます",
+      };
+      function audioGraph() {
+        if (!lipsync.ctx) {
+          lipsync.ctx = new AudioContext();
+          lipsync.analyser = lipsync.ctx.createAnalyser();
+          lipsync.analyser.fftSize = 1024;
+          lipsync.buf = new Float32Array(lipsync.analyser.fftSize);
+          // Keep the analyser connected to the output through a muted gain:
+          // some browsers only process nodes that reach the destination, and
+          // the microphone must not be played back (feedback)
+          const silent = lipsync.ctx.createGain();
+          silent.gain.value = 0;
+          lipsync.analyser.connect(silent).connect(lipsync.ctx.destination);
+        }
+        if (lipsync.ctx.state === "suspended") lipsync.ctx.resume();
+        return lipsync.ctx;
       }
-      lipsyncToggle.onclick = () => setLipsync(!lipsyncOn);
-      model.internalModel.on("beforeModelUpdate", () => {
-        if (!lipsyncOn) return;
-        const t = performance.now() / 1000;
-        const v = Math.max(0, Math.sin(t * 11) * 0.6 + Math.sin(t * 4.3) * 0.4);
-        for (const id of lipsyncIds) model.internalModel.coreModel.setParameterValueById(id, v);
+      async function setLipsyncMode(mode) {
+        if (lipsync.mic && mode !== "mic") {
+          lipsync.mic.stream.getTracks().forEach((t) => t.stop());
+          lipsync.mic.node.disconnect();
+          lipsync.mic = null;
+        }
+        if (mode !== "audio") audioEl.pause();
+        lipsync.mode = mode;
+        for (const b of document.querySelectorAll("#lipsyncModes button")) {
+          b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+        }
+        document.getElementById("lipsyncAudioRow").hidden = mode !== "audio";
+        lipsyncNote.textContent = NOTES[mode];
+        if (mode === "audio") {
+          const ctx = audioGraph();
+          if (!lipsync.fileSource) {
+            lipsync.fileSource = ctx.createMediaElementSource(audioEl);
+            lipsync.fileSource.connect(lipsync.analyser);
+            lipsync.fileSource.connect(ctx.destination);
+          }
+          if (audioEl.src) audioEl.play().catch(() => {});
+        }
+        if (mode === "mic" && !lipsync.mic) {
+          try {
+            const ctx = audioGraph();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const node = ctx.createMediaStreamSource(stream);
+            node.connect(lipsync.analyser); // not to the speakers: no feedback
+            lipsync.mic = { stream, node };
+          } catch (e) {
+            lipsyncNote.textContent = `マイクを使えません: ${e.message}`;
+          }
+        }
+      }
+      function loadAudio(src) {
+        audioEl.src = typeof src === "string" ? src : URL.createObjectURL(src);
+        audioEl.hidden = false;
+        setLipsyncMode("audio");
+      }
+      document.getElementById("lipsyncModes").onclick = (e) => {
+        if (e.target.dataset.mode) setLipsyncMode(e.target.dataset.mode);
+      };
+      document.getElementById("audioFile").onchange = (e) => {
+        if (e.target.files[0]) loadAudio(e.target.files[0]);
+      };
+      const lipsyncPanel = document.getElementById("lipsyncPanel");
+      lipsyncPanel.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        lipsyncPanel.classList.add("dragover");
       });
+      lipsyncPanel.addEventListener("dragleave", () => lipsyncPanel.classList.remove("dragover"));
+      lipsyncPanel.addEventListener("drop", (e) => {
+        e.preventDefault();
+        lipsyncPanel.classList.remove("dragover");
+        const file = [...e.dataTransfer.files].find((f) => f.type.startsWith("audio/"));
+        if (file) loadAudio(file);
+      });
+      function lipsyncTarget() {
+        if (lipsync.mode === "sine") {
+          const t = performance.now() / 1000;
+          return Math.max(0, Math.sin(t * 11) * 0.6 + Math.sin(t * 4.3) * 0.4);
+        }
+        if (!lipsync.analyser) return 0;
+        lipsync.analyser.getFloatTimeDomainData(lipsync.buf);
+        let sum = 0;
+        for (const x of lipsync.buf) sum += x * x;
+        const rms = Math.sqrt(sum / lipsync.buf.length);
+        return Math.min(1, Math.max(0, (rms - 0.02) * 6)); // ignore room noise, speech ~0.1 -> ~0.5
+      }
+      model.internalModel.on("beforeModelUpdate", () => {
+        if (lipsync.mode === "off") {
+          meter.style.width = "0";
+          return;
+        }
+        const target = lipsyncTarget();
+        // open fast, close a little slower, so the mouth does not flicker
+        lipsync.level += (target - lipsync.level) * (target > lipsync.level ? 0.6 : 0.3);
+        meter.style.width = `${Math.round(lipsync.level * 100)}%`;
+        for (const id of lipsyncIds) model.internalModel.coreModel.setParameterValueById(id, lipsync.level);
+      });
+      setLipsyncMode("off");
 
       function motionButton(group, entry, index) {
         const btn = document.createElement("button");
@@ -401,8 +535,11 @@
 
       // Debug hooks: ?play=Group:index auto-plays a motion, &freeze=seconds pins the pose at that time,
       // &cycles=N ends a loop motion after its Nth cycle, &lipsync=1 turns on the simulated lip sync
+      // (&lipsync=mic: microphone), &audio=<url> lip-syncs to an audio file
       const params = new URLSearchParams(location.search);
-      if (params.get("lipsync")) setLipsync(true);
+      if (params.get("audio")) loadAudio(params.get("audio"));
+      else if (params.get("lipsync") === "mic") setLipsyncMode("mic");
+      else if (params.get("lipsync")) setLipsyncMode("sine");
 
       // ?uitest=1 runs a synthetic drag/zoom event test (for verification)
       if (params.get("uitest")) {

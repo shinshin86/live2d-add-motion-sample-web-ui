@@ -59,7 +59,7 @@ shot() { # shot <output name> <URL query> [freeze seconds]
     timeout=$(python3 -c "print(int(($3 + 20) * 1000))")
   fi
   "$CHROME" --headless --use-angle=swiftshader-webgl --enable-unsafe-swiftshader \
-    --window-size=900,800 --timeout="$timeout" \
+    --window-size=900,800 --timeout="$timeout" --autoplay-policy=no-user-gesture-required --mute-audio \
     --screenshot="$OUT/$1.png" "http://localhost:$PORT/?$query" 2>/dev/null
   echo "wrote $OUT/$1.png"
 }
