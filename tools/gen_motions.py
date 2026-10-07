@@ -17,8 +17,14 @@ tweak motions in motion-defs/<model>.py (the per-model definition file):
     with `git add -f`
 
 Output format:
-  - curves are flat-tangent beziers with control points at 1/3 spacing,
-    matching Cubism Editor's default ease-in/out
+  - curves are beziers with control points at 1/3 spacing; by default the
+    tangents are flat, matching Cubism Editor's default ease-in/out
+  - loop motions (motion(..., loop=True)) get Meta.Loop=true; their curves
+    use curve(..., loop=True), which requires the last value to equal the
+    first and gives every key a periodic, overshoot-free tangent (the same
+    slope at t=0 and t=Duration), so the end flows into the start without a
+    jump or a stop. Players must still enable looping themselves: the
+    Cubism Framework does not read Meta.Loop (see README "Loop motions")
   - Meta counts (CurveCount / TotalSegmentCount / TotalPointCount) are
     computed from the actual data, never by hand
   - parameter IDs missing from the model's cdi3.json are reported as errors
@@ -53,17 +59,52 @@ def snap(t):
     return round(round(t * FPS) / FPS, 3)
 
 
-def curve(pid, keys):
-    """keys: [(time, value), ...] -> bezier curve with flat tangents."""
+def periodic_slopes(keys):
+    """Tangent slope per key for a closed curve (last value == first value).
+
+    Monotone-cubic (PCHIP) slopes: 0 at local extrema and holds, never
+    overshooting the neighbouring keys. The first and last key share one
+    slope computed across the wrap-around, which makes the loop seam C1."""
+    h = [t1 - t0 for (t0, _), (t1, _) in zip(keys, keys[1:])]
+    d = [(v1 - v0) / dt for ((_, v0), (_, v1)), dt in zip(zip(keys, keys[1:]), h)]
+
+    def slope(h_prev, d_prev, h_next, d_next):
+        if d_prev * d_next <= 0:
+            return 0.0
+        w1, w2 = 2 * h_next + h_prev, h_next + 2 * h_prev
+        return (w1 + w2) / (w1 / d_prev + w2 / d_next)
+
+    m = [0.0] * len(keys)
+    for i in range(1, len(keys) - 1):
+        m[i] = slope(h[i - 1], d[i - 1], h[i], d[i])
+    m[0] = m[-1] = slope(h[-1], d[-1], h[0], d[0])
+    return m
+
+
+def curve(pid, keys, loop=False):
+    """keys: [(time, value), ...] -> bezier curve.
+
+    loop=False: flat tangents at every key (one-shot motions).
+    loop=True:  periodic tangents for loop motions; the last value must equal
+                the first."""
     keys = [(snap(t), round(v, 3)) for t, v in keys]
+    if loop:
+        if keys[0][1] != keys[-1][1]:
+            sys.exit(f"ERROR: loop curve {pid} must end on its first value "
+                     f"({keys[0][1]}), got {keys[-1][1]}.")
+        slopes = periodic_slopes(keys)
+    else:
+        slopes = [0.0] * len(keys)
     seg = [keys[0][0], keys[0][1]]
-    for (t0, v0), (t1, v1) in zip(keys, keys[1:]):
+    for (t0, v0), (t1, v1), m0, m1 in zip(keys, keys[1:], slopes, slopes[1:]):
         dt = (t1 - t0) / 3.0
-        seg += [1, round(t0 + dt, 3), v0, round(t1 - dt, 3), v1, t1, v1]
+        c1v = round(v0 + m0 * dt, 3) if m0 else v0
+        c2v = round(v1 - m1 * dt, 3) if m1 else v1
+        seg += [1, round(t0 + dt, 3), c1v, round(t1 - dt, 3), c2v, t1, v1]
     return {"Target": "Parameter", "Id": pid, "Segments": seg}
 
 
-def motion(duration, curves):
+def motion(duration, curves, loop=False):
     duration = snap(duration)
     total_segments = 0
     total_points = 0
@@ -84,7 +125,9 @@ def motion(duration, curves):
         "Meta": {
             "Duration": duration,
             "Fps": FPS,
-            "Loop": False,  # actions are one-shot, unlike looping idles
+            # one-shot actions by default; players must enable looping
+            # themselves (the Cubism Framework does not read this flag)
+            "Loop": loop,
             "AreBeziersRestricted": True,
             "CurveCount": len(curves),
             "TotalSegmentCount": total_segments,

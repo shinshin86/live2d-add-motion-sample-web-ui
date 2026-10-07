@@ -80,6 +80,50 @@
       cursor: pointer;
     }
     #resetView:hover { background: #2c2f44; }
+    /* One-shot / loop sections inside the new-motion card */
+    #newActions .section + .section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #4a5080; }
+    #newActions .section-title { font-size: 11px; color: #cfd3e6; margin-bottom: 2px; }
+    #newActions .section-hint { font-size: 10px; color: #8f95ac; margin-bottom: 8px; }
+    /* The motion currently playing */
+    button.motion.playing { background: #50578f; border-color: #ffd479; box-shadow: 0 0 0 1px #ffd479 inset; }
+    button.motion .state { display: none; font-size: 10px; color: #ffd479; margin-top: 3px; }
+    button.motion.playing .state { display: block; }
+    button.motion.looping { border-color: #7fd6b0; box-shadow: 0 0 0 1px #7fd6b0 inset; animation: pulse 1.6s ease-in-out infinite; }
+    button.motion.looping .state { color: #7fd6b0; }
+    @keyframes pulse { 50% { background: #3a6b5c; } }
+    #loopControls { display: grid; gap: 6px; margin-top: 8px; }
+    #loopControls button {
+      padding: 7px 8px; font-size: 11px; color: #cfd3e6; border-radius: 8px;
+      background: #2c2f44; border: 1px solid #565c85; cursor: pointer;
+    }
+    #loopControls button:hover:not(:disabled) { background: #3a3f63; }
+    #loopControls button:disabled { opacity: 0.35; cursor: default; }
+    #stopLoop:not(:disabled) { color: #1f2130; background: #ff9f8f; border-color: #ff9f8f; font-weight: 600; }
+    #stopLoop:not(:disabled):hover { background: #ffb6a9; }
+    /* Lip sync panel */
+    #lipsyncPanel {
+      background: #262838; border: 1px solid #3a3d52; border-radius: 12px; padding: 12px;
+      display: grid; gap: 8px;
+    }
+    #lipsyncPanel.dragover { border-color: #7fd6b0; background: #2c3a3a; }
+    #lipsyncPanel .card-title { font-size: 12px; font-weight: 600; color: #cfd3e6; }
+    #lipsyncPanel .card-title small { font-weight: 400; color: #8f95ac; margin-left: 6px; }
+    #lipsyncModes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    #lipsyncModes button {
+      padding: 6px 2px; font-size: 11px; color: #cfd3e6; cursor: pointer;
+      background: #2c2f44; border: 1px solid #565c85; border-radius: 7px;
+    }
+    #lipsyncModes button:hover { background: #3a3f63; }
+    #lipsyncModes button[aria-pressed="true"] { color: #1f2130; background: #7fd6b0; border-color: #7fd6b0; font-weight: 600; }
+    #audioDrop {
+      display: block; padding: 10px; font-size: 11px; color: #9aa0b5; text-align: center;
+      border: 1px dashed #565c85; border-radius: 8px; cursor: pointer;
+    }
+    #audioDrop:hover { background: #2c2f44; }
+    #lipsyncAudio { width: 100%; height: 32px; }
+    #lipsyncNote { font-size: 10px; color: #8f95ac; min-height: 1em; }
+    #lipsyncMeter { height: 6px; background: #1f2130; border-radius: 99px; overflow: hidden; }
+    #lipsyncMeter div { height: 100%; width: 0; background: #7fd6b0; }
     #status {
       position: absolute; left: 12px; bottom: 12px; padding: 6px 12px;
       font-size: 12px; color: #cfd3e6; background: rgba(20, 21, 32, 0.75);
@@ -94,9 +138,38 @@
       <h1>Live2D モーション再生</h1>
       <p class="sub">ボタンでモーションを手動再生できます</p>
     </div>
+    <div id="lipsyncPanel">
+      <div class="card-title">リップシンク<small>どの表情・ループにも重ねられます</small></div>
+      <div id="lipsyncModes">
+        <button data-mode="off" aria-pressed="true">OFF</button>
+        <button data-mode="sine" aria-pressed="false">疑似</button>
+        <button data-mode="audio" aria-pressed="false">音声</button>
+        <button data-mode="mic" aria-pressed="false">マイク</button>
+      </div>
+      <div id="lipsyncAudioRow" hidden>
+        <label id="audioDrop">音声ファイルをここにドロップ、またはクリックして選択
+          <input type="file" id="audioFile" accept="audio/*" hidden>
+        </label>
+        <audio id="lipsyncAudio" controls hidden></audio>
+      </div>
+      <div id="lipsyncMeter" title="口の開き"><div></div></div>
+      <div id="lipsyncNote"></div>
+    </div>
     <div id="newActions">
       <div class="card-title">今回追加したモーション <span class="badge">Action</span></div>
-      <div class="grid" id="newButtons"></div>
+      <div class="section">
+        <div class="section-title">単発アクション</div>
+        <div class="section-hint">1回再生して元の姿勢に戻ります</div>
+        <div class="grid" id="newButtons"></div>
+      </div>
+      <div class="section" id="loopSection" hidden>
+        <div class="section-title">ループ(話しながら再生)</div>
+        <div class="section-hint">「ループ停止」を押すか、別のモーションを再生するまで繰り返します</div>
+        <div class="grid" id="loopButtons"></div>
+        <div id="loopControls">
+          <button id="stopLoop" disabled>■ ループ停止</button>
+        </div>
+      </div>
     </div>
     <div id="buttons"></div>
     <div id="viewControls">
@@ -113,6 +186,18 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
   <script>
     const status = document.getElementById("status");
+
+    // Headless verification (tools/verify_browser.sh): Chrome takes its
+    // screenshot when "load" fires, so &hold=N keeps "load" pending with a
+    // request that only the verify server answers after N seconds (any other
+    // server answers 404 at once, so this is harmless outside verification).
+    const hold = Number(new URLSearchParams(location.search).get("hold"));
+    if (hold > 0) {
+      const img = document.createElement("img");
+      img.hidden = true;
+      img.src = `__verify_hold?s=${hold}`;
+      document.body.appendChild(img);
+    }
 
     // The model is resolved from model.config.json (generated by tools/setup_model.py).
     // It can be overridden with ?model=<path to model3.json>.
@@ -201,6 +286,189 @@
       const settings = model.internalModel.settings;
       const groups = settings.motions; // FileReferences.Motions
       const NEW_GROUP = "Action"; // group of motions added by this repo (JSON only)
+      const mm = model.internalModel.motionManager;
+
+      // ---- Loop playback (reference implementation for apps; no library changes).
+      // The Cubism Framework does not read Meta.Loop, so the player enables
+      // looping on the motion instance itself, before it starts:
+      //   setIsLoop(true)        wrap time back to 0 at Duration (never finishes)
+      //   setIsLoopFadeIn(false) no fade-in restart per cycle (it would stall
+      //                          the motion at every seam)
+      // Only the Action group (generated here) is looped: Editor-exported
+      // motions often carry Meta.Loop=true without actually being seamless.
+      const metaLoop = {};
+      async function isLoopMotion(group, index) {
+        const key = `${group}:${index}`;
+        if (!(key in metaLoop)) {
+          const entry = groups[group][index];
+          const res = await fetch(settings.resolveURL(entry.File));
+          metaLoop[key] = group === NEW_GROUP && !!(await res.json()).Meta.Loop;
+        }
+        return metaLoop[key];
+      }
+      async function prepareMotion(group, index) {
+        const loop = await isLoopMotion(group, index);
+        const motion = await mm.loadMotion(group, index); // cached instance pixi will play
+        if (motion) {
+          motion.setIsLoop(loop);
+          motion.setIsLoopFadeIn(false);
+        }
+        return { motion, loop };
+      }
+      let current = null; // the running loop: { motion, label, duration, startedAt }
+      let frozen = false; // set by the &freeze= debug hook
+      const stopLoop = document.getElementById("stopLoop");
+      const buttons = {}; // "group:index" -> motion button
+
+      // Show which motion is playing; the stop button only works during a loop
+      function showPlaying(key, loop) {
+        for (const [k, btn] of Object.entries(buttons)) {
+          btn.classList.toggle("playing", k === key);
+          btn.classList.toggle("looping", k === key && loop);
+          btn.querySelector(".state").textContent = loop ? "⟳ ループ中" : "▶ 再生中";
+        }
+        stopLoop.disabled = !(key && loop);
+      }
+      async function playMotion(group, index, label) {
+        const { motion, loop } = await prepareMotion(group, index);
+        const ok = await model.motion(group, index, PIXI.live2d.MotionPriority.FORCE);
+        current = ok && loop
+          ? { motion, label, duration: motion.getLoopDuration(), startedAt: performance.now() }
+          : null;
+        showPlaying(ok ? `${group}:${index}` : null, loop);
+        return { ok, loop };
+      }
+      // Stop now: the idle fades in from the current pose
+      stopLoop.onclick = () => {
+        current = null;
+        mm.stopAllMotions();
+        showPlaying(null, false);
+        status.textContent = "ループを停止しました";
+      };
+      // Stop at the end of the running cycle instead
+      function finishAfterThisCycle() {
+        if (current) current.motion.setIsLoop(false);
+      }
+      app.ticker.add(() => {
+        if (!current || frozen) return;
+        const cycle = Math.floor((performance.now() - current.startedAt) / 1000 / current.duration) + 1;
+        const text = `ループ再生中: ${current.label} (${cycle}周目)`;
+        if (status.textContent !== text) status.textContent = text;
+      });
+
+      // ---- Lip sync (reference for apps): write the LipSync parameters every frame
+      // after the motion update ("beforeModelUpdate"), so they override any mouth
+      // movement in the motion itself. The mouth follows a simulated rhythm, or the
+      // loudness (RMS) of an audio file / the microphone via a Web Audio AnalyserNode.
+      const lipsyncIds = (model.internalModel.settings.groups || [])
+        .find((g) => g.Name === "LipSync")?.Ids || [];
+      const lipsync = { mode: "off", level: 0, ctx: null, analyser: null, buf: null, fileSource: null, mic: null };
+      const audioEl = document.getElementById("lipsyncAudio");
+      const lipsyncNote = document.getElementById("lipsyncNote");
+      const meter = document.querySelector("#lipsyncMeter div");
+      const NOTES = {
+        off: "OFF のときは、モーション自身の口の動きのまま再生されます",
+        sine: "一定のリズムで口を開閉します",
+        audio: "音声の大きさに合わせて口が動きます",
+        mic: "マイクに向かって話すと口が動きます",
+      };
+      function audioGraph() {
+        if (!lipsync.ctx) {
+          lipsync.ctx = new AudioContext();
+          lipsync.analyser = lipsync.ctx.createAnalyser();
+          lipsync.analyser.fftSize = 1024;
+          lipsync.buf = new Float32Array(lipsync.analyser.fftSize);
+          // Keep the analyser connected to the output through a muted gain:
+          // some browsers only process nodes that reach the destination, and
+          // the microphone must not be played back (feedback)
+          const silent = lipsync.ctx.createGain();
+          silent.gain.value = 0;
+          lipsync.analyser.connect(silent).connect(lipsync.ctx.destination);
+        }
+        if (lipsync.ctx.state === "suspended") lipsync.ctx.resume();
+        return lipsync.ctx;
+      }
+      async function setLipsyncMode(mode) {
+        if (lipsync.mic && mode !== "mic") {
+          lipsync.mic.stream.getTracks().forEach((t) => t.stop());
+          lipsync.mic.node.disconnect();
+          lipsync.mic = null;
+        }
+        if (mode !== "audio") audioEl.pause();
+        lipsync.mode = mode;
+        for (const b of document.querySelectorAll("#lipsyncModes button")) {
+          b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+        }
+        document.getElementById("lipsyncAudioRow").hidden = mode !== "audio";
+        lipsyncNote.textContent = NOTES[mode];
+        if (mode === "audio") {
+          const ctx = audioGraph();
+          if (!lipsync.fileSource) {
+            lipsync.fileSource = ctx.createMediaElementSource(audioEl);
+            lipsync.fileSource.connect(lipsync.analyser);
+            lipsync.fileSource.connect(ctx.destination);
+          }
+          if (audioEl.src) audioEl.play().catch(() => {});
+        }
+        if (mode === "mic" && !lipsync.mic) {
+          try {
+            const ctx = audioGraph();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const node = ctx.createMediaStreamSource(stream);
+            node.connect(lipsync.analyser); // not to the speakers: no feedback
+            lipsync.mic = { stream, node };
+          } catch (e) {
+            lipsyncNote.textContent = `マイクを使えません: ${e.message}`;
+          }
+        }
+      }
+      function loadAudio(src) {
+        audioEl.src = typeof src === "string" ? src : URL.createObjectURL(src);
+        audioEl.hidden = false;
+        setLipsyncMode("audio");
+      }
+      document.getElementById("lipsyncModes").onclick = (e) => {
+        if (e.target.dataset.mode) setLipsyncMode(e.target.dataset.mode);
+      };
+      document.getElementById("audioFile").onchange = (e) => {
+        if (e.target.files[0]) loadAudio(e.target.files[0]);
+      };
+      const lipsyncPanel = document.getElementById("lipsyncPanel");
+      lipsyncPanel.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        lipsyncPanel.classList.add("dragover");
+      });
+      lipsyncPanel.addEventListener("dragleave", () => lipsyncPanel.classList.remove("dragover"));
+      lipsyncPanel.addEventListener("drop", (e) => {
+        e.preventDefault();
+        lipsyncPanel.classList.remove("dragover");
+        const file = [...e.dataTransfer.files].find((f) => f.type.startsWith("audio/"));
+        if (file) loadAudio(file);
+      });
+      function lipsyncTarget() {
+        if (lipsync.mode === "sine") {
+          const t = performance.now() / 1000;
+          return Math.max(0, Math.sin(t * 11) * 0.6 + Math.sin(t * 4.3) * 0.4);
+        }
+        if (!lipsync.analyser) return 0;
+        lipsync.analyser.getFloatTimeDomainData(lipsync.buf);
+        let sum = 0;
+        for (const x of lipsync.buf) sum += x * x;
+        const rms = Math.sqrt(sum / lipsync.buf.length);
+        return Math.min(1, Math.max(0, (rms - 0.02) * 6)); // ignore room noise, speech ~0.1 -> ~0.5
+      }
+      model.internalModel.on("beforeModelUpdate", () => {
+        if (lipsync.mode === "off") {
+          meter.style.width = "0";
+          return;
+        }
+        const target = lipsyncTarget();
+        // open fast, close a little slower, so the mouth does not flicker
+        lipsync.level += (target - lipsync.level) * (target > lipsync.level ? 0.6 : 0.3);
+        meter.style.width = `${Math.round(lipsync.level * 100)}%`;
+        for (const id of lipsyncIds) model.internalModel.coreModel.setParameterValueById(id, lipsync.level);
+      });
+      setLipsyncMode("off");
 
       function motionButton(group, entry, index) {
         const btn = document.createElement("button");
@@ -213,19 +481,28 @@
         small.className = "file";
         small.textContent = file;
         btn.appendChild(small);
+        const state = document.createElement("span");
+        state.className = "state";
+        btn.appendChild(state);
+        buttons[`${group}:${index}`] = btn;
         btn.onclick = async () => {
           status.textContent = `再生中: ${label}`;
-          const ok = await model.motion(group, index, PIXI.live2d.MotionPriority.FORCE);
+          const { ok } = await playMotion(group, index, label);
           if (!ok) status.textContent = `再生失敗: ${group}[${index}]`;
         };
         return btn;
       }
 
-      // Newly added motions: always expanded in the top card
+      // Newly added motions: always expanded in the top card, one-shots and loops apart
       const newButtons = document.getElementById("newButtons");
-      (groups[NEW_GROUP] || []).forEach((entry, index) => {
-        newButtons.appendChild(motionButton(NEW_GROUP, entry, index));
+      const loopButtons = document.getElementById("loopButtons");
+      const newEntries = groups[NEW_GROUP] || [];
+      const newLoops = await Promise.all(newEntries.map((_, i) => isLoopMotion(NEW_GROUP, i)));
+      newEntries.forEach((entry, index) => {
+        const btn = motionButton(NEW_GROUP, entry, index);
+        (newLoops[index] ? loopButtons : newButtons).appendChild(btn);
       });
+      document.getElementById("loopSection").hidden = !newLoops.some(Boolean);
 
       // Pre-existing motions: one collapsible section per group (closed by default)
       const container = document.getElementById("buttons");
@@ -250,12 +527,19 @@
       }
 
       model.internalModel.motionManager.on("motionFinish", () => {
+        current = null;
+        showPlaying(null, false);
         status.textContent = "アイドル中(Idleグループ自動再生)";
       });
       status.textContent = "準備完了 — ボタンを押してください";
 
-      // Debug hooks: ?play=Group:index auto-plays a motion, &freeze=seconds pins the pose at that time
+      // Debug hooks: ?play=Group:index auto-plays a motion, &freeze=seconds pins the pose at that time,
+      // &cycles=N ends a loop motion after its Nth cycle, &lipsync=1 turns on the simulated lip sync
+      // (&lipsync=mic: microphone), &audio=<url> lip-syncs to an audio file
       const params = new URLSearchParams(location.search);
+      if (params.get("audio")) loadAudio(params.get("audio"));
+      else if (params.get("lipsync") === "mic") setLipsyncMode("mic");
+      else if (params.get("lipsync")) setLipsyncMode("sine");
 
       // ?uitest=1 runs a synthetic drag/zoom event test (for verification)
       if (params.get("uitest")) {
@@ -283,13 +567,21 @@
       const play = params.get("play");
       if (play) {
         const [g, i] = play.split(":");
-        const started = await model.motion(g, Number(i || 0), PIXI.live2d.MotionPriority.FORCE);
+        const { ok: started, loop } = await playMotion(g, Number(i || 0), play);
+        const startedAt = performance.now();
         status.textContent = `自動再生: ${play} started=${started}`;
+        const cycles = Number(params.get("cycles"));
+        if (loop && cycles > 0) {
+          // flip the flag mid-cycle so the motion ends exactly at the Nth seam
+          setTimeout(finishAfterThisCycle, (cycles - 0.5) * current.duration * 1000);
+        }
         const freeze = Number(params.get("freeze"));
         if (freeze > 0) setTimeout(() => {
           // Keep rendering but stop motion updates, pinning the pose at this moment
-          const mm = model.internalModel.motionManager;
-          status.textContent += ` frozen@${freeze}s playing=${mm.playing}`;
+          frozen = true;
+          const elapsed = (performance.now() - startedAt) / 1000;
+          status.textContent = `自動再生: ${play} started=${started}` +
+            (loop ? ` loop` : "") + ` frozen@${elapsed.toFixed(2)}s playing=${mm.playing}`;
           mm.update = () => true;
         }, freeze * 1000);
       }
