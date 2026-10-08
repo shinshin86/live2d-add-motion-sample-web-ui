@@ -48,12 +48,12 @@
       font-size: 10px; font-weight: 600; color: #1f2130;
       background: #9aa4f0; border-radius: 99px; padding: 2px 8px;
     }
-    #newActions .grid, #recordedActions .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    #newActions .grid, #recordedActions .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
     button.motion {
       padding: 9px 10px; font-size: 13px; text-align: left; color: #e8e8ee;
       background: #33364a; border: 1px solid #474b66; border-radius: 8px;
       cursor: pointer; transition: background 0.15s, border-color 0.15s;
-      width: 100%;
+      width: 100%; min-width: 0; overflow-wrap: anywhere;
     }
     button.motion:hover { background: #424766; }
     button.motion:active { background: #565c85; }
@@ -253,9 +253,9 @@
         <div class="section-title">演技を録画してモーションにする</div>
         <div class="choices"><button id="recordToggle" class="action">● 録画開始</button></div>
         <div id="recordSave" hidden>
-          <label class="slider">モーション名 <input id="recordName" maxlength="48" spellcheck="false" placeholder="例: hello_wave(英数字)"
+          <label class="slider">タイトル <input id="recordLabel" maxlength="40" placeholder="例: 首ふり"></label>
+          <label class="slider">ファイル名<br>(英数字) <input id="recordName" maxlength="48" spellcheck="false" placeholder="例: hello_wave"
             title="英数字・_・- のみ(ファイル名になります)"></label>
-          <label class="slider">表示名 <input id="recordLabel" maxlength="40"></label>
           <label class="check"><input type="checkbox" id="recordLoop"> ループとして保存(話しながら再生する用。口の開閉は含めない)</label>
           <div class="choices">
             <button id="recordSaveButton" class="action">保存</button>
@@ -301,7 +301,7 @@
     import { createMotionPlayer } from "./web/motion-player.js";
     import { relayAvailable, sendRelay } from "./web/relay.js";
     import { FacePose } from "./web/tracking.js";
-    import { FaceRecorder, MAX_SECONDS, recordingId, saveRecording } from "./web/recorder.js?v=2";
+    import { FaceRecorder, MAX_SECONDS, recordingId, recordingTimestamp, recordingCaption, saveRecording } from "./web/recorder.js?v=3";
 
     const status = document.getElementById("status");
 
@@ -700,7 +700,7 @@
       let pendingRecording = null;
       function stopRecording() {
         const now = new Date();
-        const rec = recorder.stop({ id: recordingId(now), label: "", loop: false });
+        const rec = recorder.stop({ id: recordingId(now), label: "", loop: false, recordedAt: recordingTimestamp(now) });
         recordToggle.textContent = "● 録画開始";
         recordToggle.classList.remove("on");
         recordNote.classList.remove("warn");
@@ -710,9 +710,9 @@
         }
         pendingRecording = rec;
         recordName.value = rec.id;
-        recordLabel.value = `録画 ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`;
+        recordLabel.value = "";
         recordSave.hidden = false;
-        recordNote.textContent = `${rec.duration.toFixed(1)} 秒録画しました。モーション名と表示名を付けて保存してください`;
+        recordNote.textContent = `${rec.duration.toFixed(1)} 秒録画しました。タイトルとファイル名を付けて保存してください`;
         return rec;
       }
       recordToggle.onclick = () => {
@@ -739,11 +739,11 @@
         };
         recordNote.classList.remove("warn");
         if (!NAME_RE.test(name)) {
-          fail("保存していません: モーション名は英数字・_・- で付けてください(先頭は英数字、48文字まで)。日本語の名前は「表示名」に入れてください");
+          fail("保存していません: ファイル名は英数字・_・- で付けてください(先頭は英数字、48文字まで)。日本語の名前は「タイトル」に入れてください");
           return;
         }
         if (takenNames.has(name)) {
-          fail(`保存していません: 「${name}」はすでにあるモーション名です。別の名前にしてください`);
+          fail(`保存していません: 「${name}」はすでにあるファイル名です。別の名前にしてください`);
           return;
         }
         pendingRecording.id = name;
@@ -860,9 +860,19 @@
         const label = entry.Name || file;
         btn.innerHTML = "";
         btn.append(label);
+        btn.title = `${label} (${file})`;
         const small = document.createElement("span");
         small.className = "file";
         small.textContent = file;
+        if (entry.File.includes("/recorded/")) {
+          small.textContent = recordingCaption(null, file);
+          const source = `motion-defs/recordings/${encodeURIComponent(modelStem)}/${encodeURIComponent(file)}.json`;
+          void fetch(source, { cache: "no-store" }).then(async (res) => {
+            if (!res.ok) return;
+            const recording = await res.json();
+            small.textContent = recordingCaption(recording.recordedAt, file);
+          }).catch(() => {}); // older or unavailable sources keep the filename fallback
+        }
         btn.appendChild(small);
         const state = document.createElement("span");
         state.className = "state";

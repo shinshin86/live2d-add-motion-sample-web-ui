@@ -147,9 +147,9 @@ Camera frames are processed in the browser (a Web Worker running MediaPipe Face 
 
 ### Recording a performance as a motion
 
-While the camera runs, "● 録画開始" (start recording) records your face for up to 60 seconds. Press it again to stop, give the recording a motion name (letters, digits, `_` and `-`; it becomes the file name) and a display name, then save it. Check "ループとして保存" (save as a loop) for a motion to play while speaking.
+While the camera runs, "● 録画開始" (start recording) records your face for up to 60 seconds. Press it again to stop, enter a title (up to 40 characters, including Japanese) followed by a file name (letters, digits, `_` and `-`), then save it. The title starts empty; leaving it empty uses the file name as the title. The file name starts as `rec_YYYYMMDD_HHMMSS`. Check "ループとして保存" (save as a loop) for a motion to play while speaking.
 
-With `python3 tools/serve.py`, saving writes the recording to `motion-defs/recordings/<model-name>/` (git-ignored), then automatically generates and validates the motions. Once it finishes, press "再読み込みして表示" (reload to display): the "モーション" tab opens with the recording in "保存したモーション" (saved motions). If generation or validation fails, the source recording is kept; the page shows an error and the server's terminal shows the details. Fix the reported problem and run the commands below before reloading.
+With `python3 tools/serve.py`, saving writes the recording to `motion-defs/recordings/<model-name>/` (git-ignored), then automatically generates and validates the motions. Recordings include their date and time with a local UTC offset. Saved-motion buttons show the title and a smaller "録画 M/D HH:MM" (recorded date and time); older recordings use the timestamp in the file name, or show the file name if no date is available. Once saving finishes, press "再読み込みして表示" (reload to display): the "モーション" tab opens with the recording in "保存したモーション" (saved motions). If generation or validation fails, the source recording is kept; the page shows an error and the server's terminal shows the details. Fix the reported problem and run the commands below before reloading.
 
 After updating the app, restart `tools/serve.py` and force-reload the page so the server and page use the same version. An older server is detected before saving and the page asks you to restart it.
 

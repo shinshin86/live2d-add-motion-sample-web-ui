@@ -146,6 +146,15 @@ curves use the parameters.
 
 ## Saving camera recordings
 
+The save form asks for a title first (Japanese allowed, up to 40 characters,
+initially empty), then an ASCII file name (initially `rec_YYYYMMDD_HHMMSS`).
+An empty title uses the file name as `label`. New recordings include `recordedAt`
+in ISO 8601 with the local UTC offset; it is optional for older sources.
+Saved-motion buttons show `entry.Name` above the recorded date (`録画 M/D HH:MM`),
+loaded from the recording JSON. Missing/invalid dates fall back to the timestamp
+at the end of the file name, then the file name itself. Never rewrite old recordings
+just to change their displayed metadata.
+
 With `tools/serve.py`, `POST /recordings` saves the source JSON, then runs
 `gen_motions.py` and `validate_motions.py` using the current Python interpreter.
 Saving and regeneration are serialized. `GET /live/status` advertises

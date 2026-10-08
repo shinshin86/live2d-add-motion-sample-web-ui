@@ -14,7 +14,7 @@ import { faceToLive2D } from "./live2d-face.js";
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 /**
  * @typedef {{ mode: string, values: number[] }} RecordedParam
- * @typedef {{ version: 1, id: string, label: string, loop: boolean, fps: number, duration: number,
+ * @typedef {{ version: 1, id: string, label: string, loop: boolean, recordedAt?: string, fps: number, duration: number,
  *   params: Record<string, RecordedParam> }} Recording
  */
 
@@ -62,7 +62,7 @@ export class FaceRecorder {
 
   /**
    * Stop and resample to 30 fps (frames arrive at the display rate).
-   * @param {{ id: string, label: string, loop: boolean }} meta
+   * @param {{ id: string, label: string, loop: boolean, recordedAt?: string }} meta
    * @returns {Recording | null} null when too short
    */
   stop(meta) {
@@ -95,6 +95,35 @@ export function recordingId(date = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
   return `rec_${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}_` +
     `${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+}
+
+/** ISO 8601 with the local UTC offset. @param {Date} date */
+export function recordingTimestamp(date = new Date()) {
+  const offset = -date.getTimezoneOffset();
+  const local = new Date(date.getTime() + offset * 60000).toISOString().slice(0, -1);
+  const hours = String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0");
+  const minutes = String(Math.abs(offset) % 60).padStart(2, "0");
+  return `${local}${offset >= 0 ? "+" : "-"}${hours}:${minutes}`;
+}
+
+/** Recorded date, or a timestamp in an older file name, or the file name itself.
+ * @param {unknown} recordedAt @param {string} file */
+export function recordingCaption(recordedAt, file) {
+  let date = typeof recordedAt === "string" && recordedAt ? new Date(recordedAt) : null;
+  if (!date || !Number.isFinite(date.getTime())) {
+    const match = file.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
+    date = null;
+    if (match) {
+      const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+      const candidate = new Date(year, month - 1, day, hour, minute, second);
+      if (candidate.getFullYear() === year && candidate.getMonth() === month - 1 &&
+          candidate.getDate() === day && candidate.getHours() === hour &&
+          candidate.getMinutes() === minute && candidate.getSeconds() === second) date = candidate;
+    }
+  }
+  if (!date) return file;
+  const pad = (/** @type {number} */ value) => String(value).padStart(2, "0");
+  return `録画 ${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /**
