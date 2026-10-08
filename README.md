@@ -139,7 +139,7 @@ The shots taken just before and after each seam should look alike and still show
 
 ### Camera
 
-Open the "カメラ" tab and press "● カメラ開始" (start camera). The avatar follows your head, eyes, gaze, mouth, brows and smile. The face you show first is taken as the front-facing, relaxed face; "正面をリセット" sets it again. Sensitivity, smoothing and mirroring can be adjusted. "映像を隠す" (hide image) hides the camera image, for example before taking a screenshot, while tracking continues; the choice is remembered, and `&preview=0` in the URL starts with it hidden.
+Open the "カメラ" tab and press "● カメラ開始" (start camera). The avatar follows your head, eyes, gaze, mouth, brows and smile. The face you show first is taken as the front-facing, relaxed face; "正面をリセット" sets it again. Sensitivity, smoothing and mirroring can be adjusted. Sensitivity defaults to 1.5 and ranges from 0.25 to 3; it affects the head, mouth and brows, with head angles limited to ±30 degrees. "映像を隠す" (hide image) hides the camera image, for example before taking a screenshot, while tracking continues; the choice is remembered, and `&preview=0` in the URL starts with it hidden.
 
 The face is layered on top of the playing motion: play an emotion such as a sad loop and the sad brows stay while your head and mouth move the avatar.
 

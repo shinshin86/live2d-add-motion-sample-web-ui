@@ -156,6 +156,13 @@
     #recordBox .section-title { font-size: 11px; color: #cfd3e6; }
     #recordToggle.on { color: #1f2130; background: #ff9f8f; border-color: #ff9f8f; }
     #recordSave { display: grid; gap: 6px; }
+    #recordSaveButton, #recordReload {
+      padding: 9px 8px; font-size: 13px; font-weight: 700;
+      color: #1f2130; background: #7fd6b0; border-color: #7fd6b0;
+    }
+    #recordSaveButton:hover:not(:disabled), #recordReload:hover:not(:disabled) { filter: brightness(1.08); }
+    #recordDiscard { color: #8f95ac; background: transparent; border-color: #3a3d52; }
+    #recordDiscard:hover:not(:disabled) { color: #cfd3e6; border-color: #565c85; }
     #recordLabel, #recordName {
       min-width: 0; padding: 5px 6px; font-size: 11px; color: #cfd3e6;
       background: #1f2130; border: 1px solid #3a3d52; border-radius: 6px;
@@ -238,7 +245,7 @@
       <video id="cameraPreview" muted playsinline hidden></video>
       <div id="previewHidden" hidden>映像は非表示です(トラッキングは動作中)</div>
       <button id="previewToggle" class="action" hidden>映像を隠す</button>
-      <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="2" step="0.05" value="1"></label>
+      <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="3" step="0.05" value="1.5"></label>
       <label class="slider">なめらかさ <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.35"></label>
       <label class="check"><input type="checkbox" id="mirror" checked> 鏡のように動かす(左右反転)</label>
       <div id="cameraNote" class="note">カメラ映像はブラウザの中だけで処理され、外部には送信されません</div>

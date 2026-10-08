@@ -68,7 +68,7 @@ export function mapFace(face, neutral, options) {
   /** @param {string} a @param {string} b */
   const mean = (a, b) => (d(a) + d(b)) / 2;
   const mirror = options.mirror ? -1 : 1;
-  const gain = clamp(options.sensitivity, 0.25, 2);
+  const gain = clamp(options.sensitivity, 0.25, 3);
   const x = clamp(angleDelta(face.yaw, neutral?.yaw ?? 0) * gain * mirror, -30, 30);
   const y = clamp(angleDelta(face.pitch, neutral?.pitch ?? 0) * gain, -30, 30);
   const z = clamp(angleDelta(face.roll, neutral?.roll ?? 0) * gain * mirror, -30, 30);
