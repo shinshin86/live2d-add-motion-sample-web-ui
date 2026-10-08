@@ -15,7 +15,7 @@
 # - motion playback timing varies per run -> pin the pose with the WebUI's &freeze= hook
 # - Chrome shoots as soon as the window "load" event fires (~2 s), i.e. before
 #   &freeze= kicks in -> &hold=N makes the page request /__verify_hold, which
-#   this script's server answers only after N seconds, keeping "load" pending
+#   tools/serve.py answers only after N seconds, keeping "load" pending
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,23 +30,9 @@ if [ ! -x "$CHROME" ]; then
   exit 1
 fi
 
-# Throwaway HTTP server (killed on exit): a static server plus the
-# /__verify_hold?s=N endpoint that delays the screenshot (see above)
-python3 - "$PORT" >/dev/null 2>&1 <<'PY' &
-import http.server, sys, time, urllib.parse
-
-class Handler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        url = urllib.parse.urlparse(self.path)
-        if url.path == "/__verify_hold":
-            time.sleep(float(urllib.parse.parse_qs(url.query).get("s", ["0"])[0]))
-            self.send_response(204)
-            self.end_headers()
-            return
-        super().do_GET()
-
-http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
-PY
+# Throwaway local server (killed on exit): tools/serve.py also answers
+# /__verify_hold?s=N, which delays the screenshot (see above)
+python3 tools/serve.py --port "$PORT" >/dev/null 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
 sleep 1

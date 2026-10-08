@@ -29,9 +29,19 @@ Output format:
     computed from the actual data, never by hand
   - parameter IDs missing from the model's cdi3.json are reported as errors
 
+Camera recordings:
+  - recordings saved from the WebUI camera card (web/recorder.js, through
+    tools/serve.py) in motion-defs/recordings/<model>/*.json are added to the
+    Action group too. Each becomes a motion named after the file: values are
+    put back on the base pose estimated from the existing motions, clamped to
+    their observed ranges and reduced to keyframes; a one-shot eases in from
+    and out to the base pose, a loop recording blends its end into its start
+    (and leaves out the LipSync parameters, which the player's lip sync owns)
+
 Usage: python3 tools/gen_motions.py [runtime dir]
 Always follow with: python3 tools/validate_motions.py
 """
+import collections
 import glob
 import importlib.util
 import json
@@ -42,6 +52,7 @@ FPS = 30.0
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GROUP = "Action"  # replace only this group; never touch the existing ones
 DEFS_DIR = os.path.join(ROOT, "motion-defs")
+RECORDINGS_DIR = os.path.join(DEFS_DIR, "recordings")
 
 
 def resolve_runtime():
@@ -81,26 +92,41 @@ def periodic_slopes(keys):
     return m
 
 
-def curve(pid, keys, loop=False):
+def smooth_slopes(keys):
+    """Monotone-cubic (PCHIP) slopes for an open curve: flat at both ends and
+    at local extrema, so dense keys flow without stopping at each one."""
+    m = periodic_slopes(keys)
+    m[0] = m[-1] = 0.0
+    return m
+
+
+def curve(pid, keys, loop=False, smooth=False):
     """keys: [(time, value), ...] -> bezier curve.
 
-    loop=False: flat tangents at every key (one-shot motions).
-    loop=True:  periodic tangents for loop motions; the last value must equal
-                the first."""
+    default:     flat tangents at every key (one-shot motions).
+    loop=True:   periodic tangents for loop motions; the last value must equal
+                 the first.
+    smooth=True: tangents that carry the speed through each key, flat at the
+                 ends (dense keys, e.g. camera recordings)."""
     keys = [(snap(t), round(v, 3)) for t, v in keys]
     if loop:
         if keys[0][1] != keys[-1][1]:
             sys.exit(f"ERROR: loop curve {pid} must end on its first value "
                      f"({keys[0][1]}), got {keys[-1][1]}.")
         slopes = periodic_slopes(keys)
+    elif smooth and len(keys) > 2:
+        slopes = smooth_slopes(keys)
     else:
         slopes = [0.0] * len(keys)
     seg = [keys[0][0], keys[0][1]]
     for (t0, v0), (t1, v1), m0, m1 in zip(keys, keys[1:], slopes, slopes[1:]):
         dt = (t1 - t0) / 3.0
-        c1v = round(v0 + m0 * dt, 3) if m0 else v0
-        c2v = round(v1 - m1 * dt, 3) if m1 else v1
-        seg += [1, round(t0 + dt, 3), c1v, round(t1 - dt, 3), c2v, t1, v1]
+        c1t, c2t = round(t0 + dt, 3), round(t1 - dt, 3)
+        # sloped handles: place the value at the rounded handle time, with extra
+        # precision, so short segments (camera recordings) keep the exact slope
+        c1v = round(v0 + m0 * (c1t - t0), 5) if m0 else v0
+        c2v = round(v1 - m1 * (t1 - c2t), 5) if m1 else v1
+        seg += [1, c1t, c1v, c2t, c2v, t1, v1]
     return {"Target": "Parameter", "Id": pid, "Segments": seg}
 
 
@@ -154,6 +180,104 @@ def load_definitions(stem):
     return motions, manifest, def_path
 
 
+def observed_reference(runtime, model3):
+    """Base pose (majority first value) and value ranges of the model's own
+    motions, i.e. everything outside the generated Action group."""
+    generated = {os.path.normpath(os.path.join(runtime, e["File"]))
+                 for e in model3.get("FileReferences", {}).get("Motions", {}).get(GROUP, [])}
+    ranges, firsts = {}, collections.defaultdict(collections.Counter)
+    for f in glob.glob(os.path.join(runtime, "**", "*.motion3.json"), recursive=True):
+        if os.path.normpath(f) in generated:
+            continue
+        for c in json.load(open(f))["Curves"]:
+            if c["Target"] != "Parameter":
+                continue
+            seg = c["Segments"]
+            values, i = [seg[1]], 2
+            while i < len(seg):
+                step = 7 if seg[i] == 1 else 3
+                values.append(seg[i + step - 1])
+                i += step
+            lo, hi = ranges.get(c["Id"], (float("inf"), float("-inf")))
+            ranges[c["Id"]] = (min(lo, *values), max(hi, *values))
+            firsts[c["Id"]][round(values[0], 3)] += 1
+    base = {pid: cnt.most_common(1)[0][0] for pid, cnt in firsts.items()}
+    return base, ranges
+
+
+def reduce_keys(times, values, tolerance):
+    """Ramer-Douglas-Peucker: the fewest keys that stay within tolerance."""
+    keep = {0, len(values) - 1}
+    stack = [(0, len(values) - 1)]
+    while stack:
+        a, b = stack.pop()
+        worst, worst_i = 0.0, None
+        for i in range(a + 1, b):
+            u = (times[i] - times[a]) / (times[b] - times[a])
+            err = abs(values[i] - (values[a] + (values[b] - values[a]) * u))
+            if err > worst:
+                worst, worst_i = err, i
+        if worst_i is not None and worst > tolerance:
+            keep.add(worst_i)
+            stack += [(a, worst_i), (worst_i, b)]
+    return [(times[i], values[i]) for i in sorted(keep)]
+
+
+def recording_motion(rec, base, ranges, available, lipsync_ids, ease=0.4):
+    """A camera recording (web/recorder.js) -> motion3 data."""
+    fps = rec["fps"]
+    loop = rec["loop"]
+    curves = []
+    for pid, entry in sorted(rec["params"].items()):
+        if (available is not None and pid not in available) or (ranges and pid not in ranges) \
+                or (loop and pid in lipsync_ids):
+            continue
+        b = base.get(pid, 0)
+        lo, hi = ranges.get(pid, (-30, 30) if "Angle" in pid else (-1, 1))
+        mode = entry["mode"]
+        values = [min(hi, max(lo, b + v if mode == "add" else b * v if mode == "multiply" else v))
+                  for v in entry["values"]]
+        n = len(values)
+        k = min(int(ease * fps), n // 3)
+        smoothstep = lambda u: u * u * (3 - 2 * u)
+        if loop:
+            # blend the last moments into the first value so the end flows into the start
+            for i in range(k):
+                w = smoothstep((i + 1) / k)
+                values[n - k + i] = values[n - k + i] * (1 - w) + values[0] * w
+            values[-1] = values[0]
+        else:
+            # ease in from and out to the base pose
+            for i in range(k):
+                w = smoothstep(i / k)
+                values[i] = b + (values[i] - b) * w
+                values[n - 1 - i] = b + (values[n - 1 - i] - b) * w
+            values[0] = values[-1] = b
+        times = [i / fps for i in range(n)]
+        keys = reduce_keys(times, values, max(0.002, (hi - lo) * 0.01))
+        curves.append(curve(pid, keys, loop=loop, smooth=not loop))
+    return motion((n - 1) / fps, curves, loop=loop)
+
+
+def load_recordings(stem, runtime, model3, available):
+    """Recordings -> (motions, manifest); their files go to motion/recorded/,
+    which is also how the WebUI lists them under "saved motions"."""
+    folder = os.path.join(RECORDINGS_DIR, stem)
+    files = sorted(glob.glob(os.path.join(folder, "*.json")))
+    if not files:
+        return {}, []
+    base, ranges = observed_reference(runtime, model3)
+    lipsync_ids = {pid for g in model3.get("Groups", []) if g.get("Name") == "LipSync" for pid in g.get("Ids", [])}
+    motions, manifest = {}, []
+    for f in files:
+        rec = json.load(open(f))
+        name = os.path.basename(f)[:-len(".json")]
+        motions[name] = recording_motion(rec, base, ranges, available, lipsync_ids)
+        manifest.append((name, rec.get("label") or name, 0.3, 0.5))
+    print(f"recordings: {folder} ({len(files)} recordings)")
+    return motions, manifest
+
+
 def main():
     runtime = resolve_runtime()
 
@@ -168,8 +292,17 @@ def main():
 
     # Verify every referenced parameter exists in the model (when cdi3.json is present)
     cdi_files = glob.glob(os.path.join(runtime, "*.cdi3.json"))
-    if cdi_files:
-        available = {p["Id"] for p in json.load(open(cdi_files[0]))["Parameters"]}
+    available = {p["Id"] for p in json.load(open(cdi_files[0]))["Parameters"]} if cdi_files else None
+
+    # Camera recordings become motions too (parameters the model lacks are skipped)
+    rec_motions, rec_manifest = load_recordings(stem, runtime, json.load(open(model3_path)), available)
+    clash = sorted(set(rec_motions) & set(motions))
+    if clash:
+        sys.exit(f"ERROR: recordings and definitions share motion names: {', '.join(clash)}")
+    motions.update(rec_motions)
+    manifest = list(manifest) + rec_manifest
+
+    if available is not None:
         missing = sorted({
             c["Id"] for m in motions.values() for c in m["Curves"]
             if c["Target"] == "Parameter" and c["Id"] not in available
@@ -180,10 +313,11 @@ def main():
                      f"(check the available parameters with tools/analyze_model.py):\n  "
                      + "\n  ".join(missing))
 
-    motion_dir = os.path.join(runtime, "motion")
-    os.makedirs(motion_dir, exist_ok=True)
+    # file per motion, relative to the model folder (recordings in a subfolder)
+    files = {name: f"motion/{'recorded/' if name in rec_motions else ''}{name}.motion3.json" for name in motions}
     for name, data in motions.items():
-        path = os.path.join(motion_dir, f"{name}.motion3.json")
+        path = os.path.join(runtime, files[name])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
             fh.write("\n")
@@ -196,7 +330,7 @@ def main():
     # setdefault so this also works on models that ship without any motions
     model3.setdefault("FileReferences", {}).setdefault("Motions", {})[GROUP] = [
         {
-            "File": f"motion/{name}.motion3.json",
+            "File": files[name],
             "Name": disp,
             "FadeInTime": fin,
             "FadeOutTime": fout,

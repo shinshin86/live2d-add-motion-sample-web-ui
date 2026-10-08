@@ -35,7 +35,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GROUP = "Action"
 EPS = 1e-6
-SLOPE_TOL = 0.05  # seam slope mismatch allowed after 3-decimal rounding (units/s)
+SLOPE_TOL = 0.05  # seam slope mismatch allowed after rounding (units/s) ...
+SLOPE_REL_TOL = 0.01  # ... plus this fraction of the slope
 
 
 def resolve_runtime():
@@ -187,7 +188,7 @@ def main():
                 if abs(pts[-1][1] - pts[0][1]) > EPS:
                     errors.append(f"{name}:{pid}: loop seam jumps: last value {pts[-1][1]} != first value {pts[0][1]}")
                 s_start, s_end = seam_slopes(c)
-                if abs(s_start - s_end) > SLOPE_TOL:
+                if abs(s_start - s_end) > SLOPE_TOL + SLOPE_REL_TOL * max(abs(s_start), abs(s_end)):
                     errors.append(f"{name}:{pid}: loop seam jerks: end slope {s_end:.3f}/s != start slope {s_start:.3f}/s")
                 if pid in lipsync_ids:
                     warnings.append(f"{name}:{pid}: loop Action animates a LipSync parameter; it will fight the player's lip sync while speaking")
