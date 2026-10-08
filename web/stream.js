@@ -4,6 +4,7 @@
 // and mouth arrive as parameters.
 
 import "./verify-hold.js";
+import { attachStreamView } from "./stream-view.js";
 import { attachFaceDriver } from "./live2d-face.js";
 import { createMotionPlayer } from "./motion-player.js";
 import { receiveRelay } from "./relay.js";
@@ -37,17 +38,10 @@ async function main() {
     resolution: window.devicePixelRatio || 1, preserveDrawingBuffer: true,
   });
   stage.appendChild(app.view);
-  const model = await PIXI.live2d.Live2DModel.from(await modelJson(), { autoInteract: false });
+  const modelPath = await modelJson();
+  const model = await PIXI.live2d.Live2DModel.from(modelPath, { autoInteract: false });
   app.stage.addChild(model);
-  const layout = () => {
-    const scale = Math.min(app.screen.width / model.internalModel.width,
-      app.screen.height / model.internalModel.height) * 1.1;
-    model.scale.set(scale);
-    model.anchor.set(0.5, 0.5);
-    model.position.set(app.screen.width / 2, app.screen.height / 2 + app.screen.height * 0.05);
-  };
-  layout();
-  app.renderer.on("resize", layout);
+  attachStreamView(app, model, modelPath, params);
 
   const player = createMotionPlayer(model);
   const face = attachFaceDriver(model);

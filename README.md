@@ -172,6 +172,10 @@ The recording stores what your face adds to each parameter, so the idle or emoti
 
 Keep the control page open and its camera running. You can put it behind OBS or minimize it: face sampling and lip-sync updates use a worker clock independently of rendering. The "配信モード" card shows how many streaming connections the server has, or a warning when none are connected or sending fails. For diagnosis, append `?status=1` (or `&status=1` after another query) to the OBS source URL: "受信中" means pose messages are arriving. If it stays "待機中", check the source URL, the local server and camera state. After updating the app, restart the server and reload both pages (use OBS's browser-source refresh).
 
+In OBS, right-click the Browser source and choose "Interact" to adjust the avatar: drag to move, and use the wheel or trackpad pinch to zoom around the cursor. Double-click to reset. Placement is saved separately for each model in the streaming page's local storage and restored after reloads or OBS restarts. Relative positions follow changes to the source dimensions. If storage is unavailable, the controls still work but placement will not persist.
+
+You can also set the initial placement in the URL: `stream.html?bg=green&zoom=1.2&x=0.5&y=0.55`. `zoom` is relative to the initial fitted size; `x` and `y` are the avatar's center as fractions of the source width and height (0–1). Valid URL values override saved values on each load. Double-click resets to the URL placement, or to the centered default when no values are specified. Actual model scale is limited to 0.05–5, as in the control page.
+
 `stream.html` shows only the avatar. Motions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only these parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
 
 ## Repository layout

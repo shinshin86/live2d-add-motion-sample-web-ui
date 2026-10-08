@@ -184,6 +184,18 @@ control page's animation frames to test rendering independence. Freezing a whole
 page also freezes worker delivery and is a different condition. Actual OBS and
 minimized-window camera behavior still require a manual check.
 
+## Streaming placement
+
+`web/stream-view.js` adds the control page's drag and cursor-centered wheel/pinch
+zoom to `stream.html`. Double-click resets to the initial URL placement (default:
+center at x=0.5, y=0.55, relative zoom=1). Local storage uses a key per resolved
+model3 URL and stores relative x/y plus relative zoom. Resizing reapplies these
+values against the new fitted size. Actual scale stays within 0.05–5.
+URL `zoom` (positive), `x` and `y` (0–1) override saved values per field; invalid
+values are ignored. Storage errors must not prevent interaction. In OBS, use the
+Browser source's "Interact" window. Keep streaming placement separate from the
+control page and do not include it in relay messages.
+
 ## WebUI debug hooks (index.html)
 
 | Query | Effect |
