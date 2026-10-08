@@ -167,6 +167,11 @@
       min-width: 0; padding: 5px 6px; font-size: 11px; color: #cfd3e6;
       background: #1f2130; border: 1px solid #3a3d52; border-radius: 6px;
     }
+    #recordTitle { display: grid; gap: 6px; font-size: 12px; color: #cfd3e6; }
+    #recordLabel { width: 100%; padding: 8px; font-size: 13px; }
+    #recordDetails { border: 1px solid #3a3d52; border-radius: 7px; padding: 8px; }
+    #recordDetails summary { font-size: 11px; color: #b6bccf; cursor: pointer; }
+    #recordDetails .slider { margin-top: 8px; }
     #audioDrop {
       display: block; padding: 10px; font-size: 11px; color: #9aa0b5; text-align: center;
       border: 1px dashed #565c85; border-radius: 8px; cursor: pointer;
@@ -253,9 +258,14 @@
         <div class="section-title">演技を録画してモーションにする</div>
         <div class="choices"><button id="recordToggle" class="action">● 録画開始</button></div>
         <div id="recordSave" hidden>
-          <label class="slider">タイトル <input id="recordLabel" maxlength="40" placeholder="例: 首ふり"></label>
-          <label class="slider">ファイル名<br>(英数字) <input id="recordName" maxlength="48" spellcheck="false" placeholder="例: hello_wave"
-            title="英数字・_・- のみ(ファイル名になります)"></label>
+          <label id="recordTitle">タイトル <input id="recordLabel" maxlength="40" placeholder="例: 首ふり" aria-describedby="recordTitleHint"></label>
+          <div id="recordTitleHint" class="note">ボタンに表示される名前です(日本語も使えます)</div>
+          <details id="recordDetails">
+            <summary>詳細設定(ファイル名)</summary>
+            <label class="slider">ファイル名 <input id="recordName" maxlength="48" spellcheck="false" placeholder="例: hello_wave"
+              title="英数字・_・- のみ" aria-describedby="recordFileHint"></label>
+            <div id="recordFileHint" class="note">通常は変更不要です。英数字・_・- のみ</div>
+          </details>
           <label class="check"><input type="checkbox" id="recordLoop"> ループとして保存(話しながら再生する用。口の開閉は含めない)</label>
           <div class="choices">
             <button id="recordSaveButton" class="action">保存</button>
@@ -684,6 +694,7 @@
       const recordSave = document.getElementById("recordSave");
       const recordLabel = document.getElementById("recordLabel");
       const recordName = document.getElementById("recordName");
+      const recordDetails = document.getElementById("recordDetails");
       const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$/;
       // motion names already in use (definitions and earlier recordings)
       const takenNames = new Set((groups[NEW_GROUP] || []).map((e) => e.File.split("/").pop().replace(".motion3.json", "")));
@@ -711,8 +722,10 @@
         pendingRecording = rec;
         recordName.value = rec.id;
         recordLabel.value = "";
+        recordDetails.open = false;
         recordSave.hidden = false;
-        recordNote.textContent = `${rec.duration.toFixed(1)} 秒録画しました。タイトルとファイル名を付けて保存してください`;
+        recordLabel.focus();
+        recordNote.textContent = `${rec.duration.toFixed(1)} 秒録画しました。タイトルを付けて保存してください`;
         return rec;
       }
       recordToggle.onclick = () => {
@@ -734,6 +747,7 @@
         }
         const name = recordName.value.trim();
         const fail = (message) => {
+          recordDetails.open = true;
           recordNote.textContent = message;
           recordNote.classList.add("warn");
         };
@@ -747,7 +761,7 @@
           return;
         }
         pendingRecording.id = name;
-        pendingRecording.label = recordLabel.value.trim().slice(0, 40) || name;
+        pendingRecording.label = recordLabel.value.trim().slice(0, 40) || recordingCaption(pendingRecording.recordedAt, recordingId());
         pendingRecording.loop = recordLoop.checked;
         savingRecording = true;
         const controls = [recordToggle, recordName, recordLabel, recordLoop,

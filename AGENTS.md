@@ -146,9 +146,11 @@ curves use the parameters.
 
 ## Saving camera recordings
 
-The save form asks for a title first (Japanese allowed, up to 40 characters,
-initially empty), then an ASCII file name (initially `rec_YYYYMMDD_HHMMSS`).
-An empty title uses the file name as `label`. New recordings include `recordedAt`
+The save form shows only the title input (Japanese allowed, up to 40 characters,
+initially empty and focused after recording stops). An empty title uses the
+recorded date (`録画 M/D HH:MM`) as `label`. The automatically assigned ASCII
+file name (`rec_YYYYMMDD_HHMMSS`) is inside initially closed
+"詳細設定(ファイル名)"; saving errors open these settings. New recordings include `recordedAt`
 in ISO 8601 with the local UTC offset; it is optional for older sources.
 Saved-motion buttons show `entry.Name` above the recorded date (`録画 M/D HH:MM`),
 loaded from the recording JSON. Missing/invalid dates fall back to the timestamp

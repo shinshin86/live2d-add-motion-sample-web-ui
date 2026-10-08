@@ -60,9 +60,7 @@ def valid_recording(rec):
     # the motion name chosen in the WebUI; it becomes the file and motion name
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,47}", str(rec.get("id"))):
         return False
-    # An empty title falls back to the file name, which can be 48 characters.
-    label_limit = 48 if rec.get("label") == rec.get("id") else 40
-    if not isinstance(rec.get("label"), str) or not 0 < len(rec["label"]) <= label_limit:
+    if not isinstance(rec.get("label"), str) or not 0 < len(rec["label"]) <= 40:
         return False
     if "recordedAt" in rec and (not isinstance(rec["recordedAt"], str) or len(rec["recordedAt"]) > 64):
         return False
