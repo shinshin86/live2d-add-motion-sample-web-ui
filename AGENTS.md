@@ -156,6 +156,7 @@ curves use the parameters.
 | `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh; also on stream.html) |
 | `&tab=motion\|camera` | Open a panel tab (the camera hooks open the camera tab unless `&tab=` says otherwise) |
 | `&camera=1` | Start the camera on load |
+| `&preview=0` | Start with the camera image hidden (tracking continues) |
 | `&fakeface=1` | Drive the face with synthetic tracking results (no camera) |
 | `&record=N` | Record N seconds of the face and save it (`&recordloop=1`: as a loop); with `&fakeface=1` this tests the recording path headless |
 | `stream.html?bg=green&status=1` | Streaming page: background (transparent by default, `green`, `blue`, `<hex>`); `status=1` shows the relay state |

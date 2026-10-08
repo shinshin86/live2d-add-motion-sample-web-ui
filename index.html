@@ -139,6 +139,10 @@
     #lipsyncPanel.dragover { border-color: #7fd6b0; background: #2c3a3a; }
     #cameraPreview { width: 100%; border-radius: 8px; transform: scaleX(-1); background: #1f2130; }
     #cameraPreview.unmirrored { transform: none; }
+    /* hidden preview: kept rendered (1 px, invisible) so frame capture keeps working */
+    #cameraPreview.concealed { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    #previewHidden { padding: 14px 8px; font-size: 11px; color: #8f95ac; text-align: center;
+      background: #1f2130; border: 1px dashed #3a3d52; border-radius: 8px; }
     .slider { display: grid; grid-template-columns: 5.5em 1fr; align-items: center; font-size: 11px; color: #b6bccf; }
     .check { font-size: 11px; color: #b6bccf; display: flex; gap: 6px; align-items: center; }
     .url-row { display: grid; grid-template-columns: 1fr auto auto; gap: 4px; }
@@ -226,6 +230,8 @@
         <button id="calibrate" class="action" disabled>正面をリセット</button>
       </div>
       <video id="cameraPreview" muted playsinline hidden></video>
+      <div id="previewHidden" hidden>映像は非表示です(トラッキングは動作中)</div>
+      <button id="previewToggle" class="action" hidden>映像を隠す</button>
       <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="2" step="0.05" value="1"></label>
       <label class="slider">なめらかさ <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.35"></label>
       <label class="check"><input type="checkbox" id="mirror" checked> 鏡のように動かす(左右反転)</label>
@@ -567,7 +573,7 @@
         cameraToggle.classList.toggle("on", active);
         markCameraTab(active);
         calibrateButton.disabled = state !== "running";
-        preview.hidden = !active;
+        updatePreview();
         cameraNote.textContent = CAMERA_NOTES[state];
         cameraNote.classList.toggle("warn", ["cameraBlocked", "cameraUnavailable", "modelError"].includes(state));
         if (!active) {
@@ -583,6 +589,36 @@
         if (facePose.calibrate(performance.now())) cameraNote.textContent = "今の顔の向きを正面にしました";
       };
       mirror.onchange = () => preview.classList.toggle("unmirrored", !mirror.checked);
+
+      // Hide the camera image (e.g. for screenshots); tracking keeps running
+      const previewToggle = document.getElementById("previewToggle");
+      const previewHidden = document.getElementById("previewHidden");
+      const PREVIEW_KEY = "live2d-webui-hide-preview";
+      let concealPreview = false;
+      try {
+        concealPreview = localStorage.getItem(PREVIEW_KEY) === "1";
+      } catch {
+        // storage unavailable: show the preview
+      }
+      // &preview=0 starts with the camera image hidden (e.g. for screenshots)
+      if (new URLSearchParams(location.search).get("preview") === "0") concealPreview = true;
+      function updatePreview() {
+        const active = cameraState === "starting" || cameraState === "running";
+        preview.hidden = !active;
+        preview.classList.toggle("concealed", concealPreview);
+        previewHidden.hidden = !active || !concealPreview;
+        previewToggle.hidden = !active;
+        previewToggle.textContent = concealPreview ? "映像を表示" : "映像を隠す";
+      }
+      previewToggle.onclick = () => {
+        concealPreview = !concealPreview;
+        try {
+          localStorage.setItem(PREVIEW_KEY, concealPreview ? "1" : "0");
+        } catch {
+          // not remembered
+        }
+        updatePreview();
+      };
 
       // ---- Tabs: the camera is a separate feature from motion playback.
       // Switching tabs only changes what is shown; a running camera keeps running.

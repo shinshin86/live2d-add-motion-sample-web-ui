@@ -7,6 +7,10 @@
 //   multiply  eye openness: motion value x face (a real blink also closes sad eyes)
 //   replace   gaze and mouth openness come from the face
 // Values are clamped to each parameter's range in the model.
+//
+// Live2D's horizontal axes run the other way from web/tracking.js's face
+// parameters: turn, tilt and gaze are negated here, so the avatar moves to the
+// same side of the screen as the face in the camera preview.
 
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 
@@ -27,6 +31,9 @@ const REPLACE = { gazeX: ["ParamEyeBallX"], gazeY: ["ParamEyeBallY"], mouthOpen:
  * @typedef {{ id: string, mode: FaceMode, value: number }} FaceContribution
  */
 
+/** Face parameters whose sign flips for Live2D (horizontal axes). */
+const HORIZONTAL = new Set(["angleX", "angleZ", "bodyAngleX", "bodyAngleZ", "gazeX"]);
+
 /**
  * What the face contributes to each Live2D parameter (also what a recording stores).
  * @param {FaceParams} params
@@ -38,7 +45,8 @@ export function faceToLive2D(params) {
   for (const [mode, table] of /** @type {[FaceMode, Record<string, string[]>][]} */ (
     [["add", ADD], ["multiply", MULTIPLY], ["replace", REPLACE]])) {
     for (const [key, ids] of Object.entries(table)) {
-      for (const id of ids) out.push({ id, mode, value: params[key] });
+      const value = HORIZONTAL.has(key) ? -params[key] : params[key];
+      for (const id of ids) out.push({ id, mode, value });
     }
   }
   return out;
