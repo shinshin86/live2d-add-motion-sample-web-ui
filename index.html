@@ -144,7 +144,7 @@
     #cameraPreview.concealed { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
     #previewHidden { padding: 14px 8px; font-size: 11px; color: #8f95ac; text-align: center;
       background: #1f2130; border: 1px dashed #3a3d52; border-radius: 8px; }
-    .slider { display: grid; grid-template-columns: 5.5em 1fr; align-items: center; font-size: 11px; color: #b6bccf; }
+    .slider { display: grid; grid-template-columns: 6.5em 1fr; align-items: center; font-size: 11px; color: #b6bccf; }
     .check { font-size: 11px; color: #b6bccf; display: flex; gap: 6px; align-items: center; }
     .url-row { display: grid; grid-template-columns: 1fr auto auto; gap: 4px; }
     .url-row input {
@@ -246,7 +246,7 @@
         <div class="section-title">演技を録画してモーションにする</div>
         <div class="choices"><button id="recordToggle" class="action">● 録画開始</button></div>
         <div id="recordSave" hidden>
-          <label class="slider">モーション名 <input id="recordName" maxlength="48" spellcheck="false"
+          <label class="slider">モーション名 <input id="recordName" maxlength="48" spellcheck="false" placeholder="例: hello_wave(英数字)"
             title="英数字・_・- のみ(ファイル名になります)"></label>
           <label class="slider">表示名 <input id="recordLabel" maxlength="40"></label>
           <label class="check"><input type="checkbox" id="recordLoop"> ループとして保存(話しながら再生する用。口の開閉は含めない)</label>
@@ -687,6 +687,7 @@
         const rec = recorder.stop({ id: recordingId(now), label: "", loop: false });
         recordToggle.textContent = "● 録画開始";
         recordToggle.classList.remove("on");
+        recordNote.classList.remove("warn");
         if (!rec) {
           recordNote.textContent = "短すぎます。1秒以上録画してください";
           return null;
@@ -711,12 +712,17 @@
       async function savePendingRecording() {
         if (!pendingRecording) return;
         const name = recordName.value.trim();
+        const fail = (message) => {
+          recordNote.textContent = message;
+          recordNote.classList.add("warn");
+        };
+        recordNote.classList.remove("warn");
         if (!NAME_RE.test(name)) {
-          recordNote.textContent = "モーション名は英数字・_・- で付けてください(先頭は英数字、48文字まで)";
+          fail("保存していません: モーション名は英数字・_・- で付けてください(先頭は英数字、48文字まで)。日本語の名前は「表示名」に入れてください");
           return;
         }
         if (takenNames.has(name)) {
-          recordNote.textContent = `「${name}」はすでにあるモーション名です。別の名前にしてください`;
+          fail(`保存していません: 「${name}」はすでにあるモーション名です。別の名前にしてください`);
           return;
         }
         pendingRecording.id = name;
@@ -731,7 +737,7 @@
           pendingRecording = null;
           recordSave.hidden = true;
         } catch (e) {
-          recordNote.textContent = e.message;
+          fail(e.message);
         }
       }
       document.getElementById("recordSaveButton").onclick = savePendingRecording;

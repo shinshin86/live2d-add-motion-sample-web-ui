@@ -108,7 +108,8 @@ export async function saveRecording(recording, model, server) {
   const body = JSON.stringify({ model, recording });
   if (server) {
     const res = await fetch("recordings", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-    if (!res.ok) throw new Error(`保存できませんでした (HTTP ${res.status})`);
+    if (res.status === 409) throw new Error("同じモーション名の録画がすでにあります。別の名前にしてください");
+    if (!res.ok) throw new Error(`保存できませんでした (HTTP ${res.status})。サーバーのターミナルに理由が表示されます`);
     return (await res.json()).path;
   }
   const url = URL.createObjectURL(new Blob([JSON.stringify(recording)], { type: "application/json" }));

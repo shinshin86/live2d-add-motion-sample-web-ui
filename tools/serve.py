@@ -96,6 +96,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # the relay posts ~30 messages per second; keep the console quiet
 
+    def end_headers(self):
+        # always revalidate, so a reload picks up edited modules and regenerated motions
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         if url.path == "/live/events":
@@ -161,18 +166,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(400)
             return
         rec = body.get("recording") if isinstance(body, dict) else None
-        if body.get("model") != stem or not valid_recording(rec):
-            self.send_error(400, "invalid recording or not the current model")
+        if body.get("model") != stem:
+            print(f"recording rejected: it is for model {body.get('model')!r}, the current model is {stem!r}")
+            self.send_error(400, "not the current model")
+            return
+        if not valid_recording(rec):
+            print("recording rejected: invalid recording data")
+            self.send_error(400, "invalid recording")
             return
         folder = os.path.join(ROOT, "motion-defs", "recordings", stem)
         target = os.path.join(folder, f"{rec['id']}.json")
         if os.path.exists(target):
+            print(f"recording rejected: {os.path.relpath(target, ROOT)} already exists")
             self.send_error(409)
             return
         os.makedirs(folder, exist_ok=True)
         with open(target, "w") as fh:
             json.dump(rec, fh, ensure_ascii=False, separators=(",", ":"))
             fh.write("\n")
+        print(f"recording saved: {os.path.relpath(target, ROOT)}  (run python3 tools/gen_motions.py)")
         reply = json.dumps({"path": os.path.relpath(target, ROOT)}).encode()
         self.send_response(201)
         self.send_header("Content-Type", "application/json")
@@ -215,7 +227,8 @@ def main():
         sys.exit(f"ERROR: cannot listen on 127.0.0.1:{args.port} ({e.strerror}). "
                  f"Another program may be using it; try --port {args.port + 1}.")
     server.daemon_threads = True
-    print(f"serving http://localhost:{args.port}  (stream page: http://localhost:{args.port}/stream.html)")
+    print(f"serving http://localhost:{args.port}  (stream page: http://localhost:{args.port}/stream.html)",
+          flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
