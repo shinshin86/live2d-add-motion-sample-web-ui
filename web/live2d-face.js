@@ -8,9 +8,9 @@
 //   replace   gaze and mouth openness come from the face
 // Values are clamped to each parameter's range in the model.
 //
-// Live2D's head rotation axes run the other way from web/tracking.js's face
-// parameters: turn, nod, tilt and horizontal gaze are negated here, so the
-// avatar moves the same way as the face in the camera preview (look up -> up).
+// Two of Live2D's head axes run the other way from web/tracking.js's face
+// parameters: nod (look up -> up) and tilt are negated here. Turn and gaze
+// already match. In mirror mode the avatar moves like your reflection.
 
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 
@@ -32,7 +32,7 @@ const REPLACE = { gazeX: ["ParamEyeBallX"], gazeY: ["ParamEyeBallY"], mouthOpen:
  */
 
 /** Face parameters whose sign flips for Live2D. */
-const FLIPPED = new Set(["angleX", "angleY", "angleZ", "bodyAngleX", "bodyAngleZ", "gazeX"]);
+const FLIPPED = new Set(["angleY", "angleZ", "bodyAngleZ"]);
 
 /**
  * What the face contributes to each Live2D parameter (also what a recording stores).
