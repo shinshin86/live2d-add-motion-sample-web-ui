@@ -67,8 +67,8 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)
 - A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
 - "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
-- "カメラ" (camera) moves the avatar with your face, and "配信モード" (streaming mode) shows it alone for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)
-- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop), `?uitest=1` (automated drag/zoom test)
+- The panel has two tabs: "モーション" (motions: everything above) and "カメラ" (camera: face tracking, recording and the streaming mode for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)). The camera keeps running when you switch tabs, so you can play emotion motions while it drives the face; a red dot on the tab shows that it is on
+- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&tab=camera` (open the camera tab), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop), `?uitest=1` (automated drag/zoom test)
 
 ## Adding your own motions
 
@@ -139,7 +139,7 @@ The shots taken just before and after each seam should look alike and still show
 
 ### Camera
 
-Press "● カメラ開始" (start camera) in the "カメラ" card. The avatar follows your head, eyes, gaze, mouth, brows and smile. The face you show first is taken as the front-facing, relaxed face; "正面をリセット" sets it again. Sensitivity, smoothing and mirroring can be adjusted.
+Open the "カメラ" tab and press "● カメラ開始" (start camera). The avatar follows your head, eyes, gaze, mouth, brows and smile. The face you show first is taken as the front-facing, relaxed face; "正面をリセット" sets it again. Sensitivity, smoothing and mirroring can be adjusted.
 
 The face is layered on top of the playing motion: play an emotion such as a sad loop and the sad brows stay while your head and mouth move the avatar.
 
@@ -159,7 +159,7 @@ With `python3 tools/serve.py` the file is saved to `motion-defs/recordings/<mode
 ### Streaming mode (OBS)
 
 1. Start the server with `python3 tools/serve.py`. The streaming mode needs it; `python3 -m http.server` cannot relay
-2. In the "配信モード" card, choose the background (transparent, green or blue) and copy the URL of `stream.html`
+2. In the "配信モード" card of the "カメラ" tab, choose the background (transparent, green or blue) and copy the URL of `stream.html`
 3. In OBS, add a "Browser" source with that URL
 
 `stream.html` shows only the avatar. Motions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only these parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.

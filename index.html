@@ -6,6 +6,8 @@
   <title>Live2D モーション追加サンプル - Hiyori</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* hidden must win over the display rules below (grid/flex) */
+    [hidden] { display: none !important; }
     html, body { height: 100%; font-family: "Hiragino Sans", "Yu Gothic", sans-serif; }
     body { display: flex; background: #2b2d3a; color: #e8e8ee; overflow: hidden; }
     #stage { flex: 1; min-width: 0; position: relative; }
@@ -16,6 +18,21 @@
       display: flex; flex-direction: column; gap: 14px;
     }
     #panel h1 { font-size: 15px; }
+    /* Tabs: motions / camera */
+    #tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px;
+      background: #262838; border: 1px solid #3a3d52; border-radius: 10px;
+    }
+    #tabs button {
+      padding: 7px 4px; font-size: 12px; color: #b6bccf; cursor: pointer;
+      background: transparent; border: 0; border-radius: 7px;
+    }
+    #tabs button:hover { background: #2c2f44; }
+    #tabs button[aria-selected="true"] { color: #1f2130; background: #aeb6f5; font-weight: 600; }
+    #tabs .live { color: #ff6b6b; margin-left: 4px; }
+    #tabs button[aria-selected="true"] .live { color: #c0392b; }
+    .tabpanel { display: flex; flex-direction: column; gap: 14px; }
+    .tabpanel[hidden] { display: none; }
     #panel .sub { font-size: 11px; color: #9aa0b5; margin-top: 3px; }
 
     /* Newly added motions (always expanded, highlighted) */
@@ -161,6 +178,47 @@
       <h1>Live2D モーション再生</h1>
       <p class="sub">ボタンでモーションを手動再生できます</p>
     </div>
+    <div id="tabs" role="tablist">
+      <button role="tab" id="tab-motion" data-tab="motion" aria-selected="true" aria-controls="tabpanel-motion">モーション</button>
+      <button role="tab" id="tab-camera" data-tab="camera" aria-selected="false" aria-controls="tabpanel-camera">カメラ</button>
+    </div>
+    <div class="tabpanel" id="tabpanel-motion" role="tabpanel" aria-labelledby="tab-motion">
+    <div id="lipsyncPanel" class="tool-card">
+      <div class="card-title">リップシンク<small>どの表情・ループにも重ねられます</small></div>
+      <div id="lipsyncModes" class="choices">
+        <button data-mode="off" aria-pressed="true">OFF</button>
+        <button data-mode="sine" aria-pressed="false">疑似</button>
+        <button data-mode="audio" aria-pressed="false">音声</button>
+        <button data-mode="mic" aria-pressed="false">マイク</button>
+      </div>
+      <div id="lipsyncAudioRow" hidden>
+        <label id="audioDrop">音声ファイルをここにドロップ、またはクリックして選択
+          <input type="file" id="audioFile" accept="audio/*" hidden>
+        </label>
+        <audio id="lipsyncAudio" controls hidden></audio>
+      </div>
+      <div id="lipsyncMeter" title="口の開き"><div></div></div>
+      <div id="lipsyncNote"></div>
+    </div>
+    <div id="newActions">
+      <div class="card-title">今回追加したモーション <span class="badge">Action</span></div>
+      <div class="section">
+        <div class="section-title">単発アクション</div>
+        <div class="section-hint">1回再生して元の姿勢に戻ります</div>
+        <div class="grid" id="newButtons"></div>
+      </div>
+      <div class="section" id="loopSection" hidden>
+        <div class="section-title">ループ(話しながら再生)</div>
+        <div class="section-hint">「ループ停止」を押すか、別のモーションを再生するまで繰り返します</div>
+        <div class="grid" id="loopButtons"></div>
+        <div id="loopControls">
+          <button id="stopLoop" disabled>■ ループ停止</button>
+        </div>
+      </div>
+    </div>
+    <div id="buttons"></div>
+    </div>
+    <div class="tabpanel" id="tabpanel-camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
     <div id="cameraPanel" class="tool-card">
       <div class="card-title">カメラ<small>顔の動きでアバターを動かします</small></div>
       <div class="choices">
@@ -200,40 +258,7 @@
       </div>
       <div id="streamNote" class="note"></div>
     </div>
-    <div id="lipsyncPanel" class="tool-card">
-      <div class="card-title">リップシンク<small>どの表情・ループにも重ねられます</small></div>
-      <div id="lipsyncModes" class="choices">
-        <button data-mode="off" aria-pressed="true">OFF</button>
-        <button data-mode="sine" aria-pressed="false">疑似</button>
-        <button data-mode="audio" aria-pressed="false">音声</button>
-        <button data-mode="mic" aria-pressed="false">マイク</button>
-      </div>
-      <div id="lipsyncAudioRow" hidden>
-        <label id="audioDrop">音声ファイルをここにドロップ、またはクリックして選択
-          <input type="file" id="audioFile" accept="audio/*" hidden>
-        </label>
-        <audio id="lipsyncAudio" controls hidden></audio>
-      </div>
-      <div id="lipsyncMeter" title="口の開き"><div></div></div>
-      <div id="lipsyncNote"></div>
     </div>
-    <div id="newActions">
-      <div class="card-title">今回追加したモーション <span class="badge">Action</span></div>
-      <div class="section">
-        <div class="section-title">単発アクション</div>
-        <div class="section-hint">1回再生して元の姿勢に戻ります</div>
-        <div class="grid" id="newButtons"></div>
-      </div>
-      <div class="section" id="loopSection" hidden>
-        <div class="section-title">ループ(話しながら再生)</div>
-        <div class="section-hint">「ループ停止」を押すか、別のモーションを再生するまで繰り返します</div>
-        <div class="grid" id="loopButtons"></div>
-        <div id="loopControls">
-          <button id="stopLoop" disabled>■ ループ停止</button>
-        </div>
-      </div>
-    </div>
-    <div id="buttons"></div>
     <div id="viewControls">
       <div class="hint">
         <b>ドラッグ</b>: アバターを移動 /
@@ -540,6 +565,7 @@
         const active = state === "starting" || state === "running";
         cameraToggle.textContent = active ? "■ カメラ停止" : "● カメラ開始";
         cameraToggle.classList.toggle("on", active);
+        markCameraTab(active);
         calibrateButton.disabled = state !== "running";
         preview.hidden = !active;
         cameraNote.textContent = CAMERA_NOTES[state];
@@ -557,6 +583,45 @@
         if (facePose.calibrate(performance.now())) cameraNote.textContent = "今の顔の向きを正面にしました";
       };
       mirror.onchange = () => preview.classList.toggle("unmirrored", !mirror.checked);
+
+      // ---- Tabs: the camera is a separate feature from motion playback.
+      // Switching tabs only changes what is shown; a running camera keeps running.
+      const TAB_KEY = "live2d-webui-tab";
+      function selectTab(name) {
+        for (const tab of document.querySelectorAll("#tabs [role=tab]")) {
+          const selected = tab.dataset.tab === name;
+          tab.setAttribute("aria-selected", String(selected));
+          document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+        }
+        try {
+          localStorage.setItem(TAB_KEY, name);
+        } catch {
+          // storage unavailable (private mode etc.): just do not remember the tab
+        }
+      }
+      document.getElementById("tabs").onclick = (e) => {
+        const tab = e.target.closest("[role=tab]");
+        if (tab) selectTab(tab.dataset.tab);
+      };
+      let savedTab = null;
+      try {
+        savedTab = localStorage.getItem(TAB_KEY);
+      } catch {
+        // ignore
+      }
+      selectTab(savedTab === "camera" ? "camera" : "motion");
+      // show on the camera tab that the camera is on, wherever the user is
+      const cameraTab = document.getElementById("tab-camera");
+      function markCameraTab(on) {
+        cameraTab.innerHTML = "カメラ";
+        if (on) {
+          const dot = document.createElement("span");
+          dot.className = "live";
+          dot.textContent = "●";
+          dot.title = "カメラ動作中";
+          cameraTab.appendChild(dot);
+        }
+      }
 
       // ---- Recording a performance (web/recorder.js): saved through tools/serve.py
       // into motion-defs/recordings/<model>/, turned into a motion by gen_motions.py
@@ -756,8 +821,14 @@
       // &cycles=N ends a loop motion after its Nth cycle, &lipsync=1 turns on the simulated lip sync
       // (&lipsync=mic: microphone), &audio=<url> lip-syncs to an audio file
       const params = new URLSearchParams(location.search);
+      // &tab=motion|camera opens a tab; otherwise the camera hooks below open the camera tab
+      if (params.get("tab")) selectTab(params.get("tab") === "camera" ? "camera" : "motion");
+      else if (params.get("camera") || params.get("fakeface") || params.get("record")) selectTab("camera");
       // &fakeface=1 drives the face with synthetic tracking results (no camera)
-      if (params.get("fakeface")) stopFake = startFakeFace(onFace);
+      if (params.get("fakeface")) {
+        stopFake = startFakeFace(onFace);
+        markCameraTab(true);
+      }
       // &camera=1 starts the camera on load
       if (params.get("camera")) void camera.start();
       // &record=N records N seconds of the face and saves it (&recordloop=1: as a loop)

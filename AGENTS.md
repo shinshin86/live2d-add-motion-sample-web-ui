@@ -154,6 +154,7 @@ curves use the parameters.
 | `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame); `&lipsync=mic` uses the microphone |
 | `&audio=<url>` | Lip-sync to an audio file (loudness of the playing audio) |
 | `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh; also on stream.html) |
+| `&tab=motion\|camera` | Open a panel tab (the camera hooks open the camera tab unless `&tab=` says otherwise) |
 | `&camera=1` | Start the camera on load |
 | `&fakeface=1` | Drive the face with synthetic tracking results (no camera) |
 | `&record=N` | Record N seconds of the face and save it (`&recordloop=1`: as a loop); with `&fakeface=1` this tests the recording path headless |
