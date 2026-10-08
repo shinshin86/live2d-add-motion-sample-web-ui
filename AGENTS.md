@@ -169,6 +169,21 @@ and the server prints details. Fix the cause and run generation/validation befor
 reloading. A plain static server keeps the download fallback and requires these
 commands manually.
 
+## Streaming updates
+
+Face sampling, recording and lip-sync levels run on `web/background-clock.js`
+and its worker, independently of PixiJS animation frames. Rendering consumes the
+latest pose. The synthetic face uses the same clock so background checks do not
+depend on a main-thread timer. Only one worker tick and one relay POST may be in
+flight; busy pose messages are dropped and motion/stop commands retain order.
+`GET /live/status` includes the number of SSE `clients`. The control page polls
+it to show connection and send errors. This counts SSE subscribers, including
+diagnostic readers, and disconnect detection can wait for the next keepalive.
+In headless Chrome, background tabs may still report `visible`: stop only the
+control page's animation frames to test rendering independence. Freezing a whole
+page also freezes worker delivery and is a different condition. Actual OBS and
+minimized-window camera behavior still require a manual check.
+
 ## WebUI debug hooks (index.html)
 
 | Query | Effect |

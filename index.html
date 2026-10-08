@@ -288,6 +288,7 @@
         <button id="copyStreamUrl" class="action">コピー</button>
         <button id="openStream" class="action">開く</button>
       </div>
+      <div id="streamConnection" class="note">配信ページの接続を確認しています…</div>
       <div id="streamNote" class="note"></div>
     </div>
     </div>
@@ -305,11 +306,12 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
   <script type="module">
     import "./web/verify-hold.js";
+    import { startBackgroundClock } from "./web/background-clock.js";
     import { CameraCapture } from "./web/camera.js";
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
     import { createMotionPlayer } from "./web/motion-player.js";
-    import { relayAvailable, sendRelay } from "./web/relay.js";
+    import { relayAvailable, sendRelay, relaySendStatus } from "./web/relay.js";
     import { FacePose } from "./web/tracking.js";
     import { FaceRecorder, MAX_SECONDS, recordingId, recordingTimestamp, recordingCaption, saveRecording } from "./web/recorder.js?v=3";
 
@@ -557,9 +559,6 @@
           meter.style.width = "0";
           return;
         }
-        const target = lipsyncTarget();
-        // open fast, close a little slower, so the mouth does not flicker
-        lipsync.level += (target - lipsync.level) * (target > lipsync.level ? 0.6 : 0.3);
         meter.style.width = `${Math.round(lipsync.level * 100)}%`;
         for (const id of lipsyncIds) model.internalModel.coreModel.setParameterValueById(id, lipsync.level);
       });
@@ -826,13 +825,35 @@
         ? "このページで再生したモーション・カメラ・リップシンクが配信ページに反映されます"
         : "配信モードを使うには python3 tools/serve.py でサーバーを起動してください";
       streamNote.classList.toggle("warn", !relayOn);
+      document.getElementById("streamConnection").hidden = !relayOn;
 
-      // Every frame: drive the model with the face, and mirror the pose to stream.html
+      // Sampling and relay updates continue when animation frames stop in the background.
+      const streamConnection = document.getElementById("streamConnection");
+      let lastConnectionCheck = -Infinity;
+      let checkingConnection = false;
+      async function checkStreamConnection() {
+        checkingConnection = true;
+        try {
+          const res = await fetch("live/status", { cache: "no-store", signal: AbortSignal.timeout(2000) });
+          if (!res.ok) throw new Error("server unavailable");
+          const state = await res.json();
+          const error = relaySendStatus().error;
+          const connected = Number(state.clients) || 0;
+          streamConnection.textContent = error ? `配信への送信エラー: ${error}` : connected > 0
+            ? `配信ページ接続中: ${connected} 件`
+            : "配信ページ未接続。OBS のブラウザソースの URL を確認してください";
+          streamConnection.classList.toggle("warn", !!error || connected === 0);
+        } catch {
+          streamConnection.textContent = "中継サーバーに接続できません。サーバーと URL を確認してください";
+          streamConnection.classList.add("warn");
+        } finally { checkingConnection = false; }
+      }
       let lastFrame = performance.now();
-      let lastSent = 0;
+      let liveFace = null;
+      let liveWeight = 0;
+      app.ticker.add(() => faceDriver.set(liveFace, liveWeight));
       let sentIdle = true;
-      app.ticker.add(() => {
-        const now = performance.now();
+      startBackgroundClock((now) => {
         const dt = (now - lastFrame) / 1000;
         lastFrame = now;
         const tracking = cameraState === "running" || stopFake;
@@ -848,22 +869,31 @@
             cameraNote.textContent = sampled.tracking ? CAMERA_NOTES.running : "顔が見つかりません(カメラの正面に顔を入れてください)";
           }
         }
-        faceDriver.set(weight > 0 ? face : null, weight);
+        liveFace = weight > 0 ? face : null;
+        liveWeight = weight;
+        if (lipsync.mode !== "off") {
+          const target = lipsyncTarget();
+          // Open fast, close more slowly, regardless of rendering rate.
+          const alpha = 1 - Math.pow(1 - (target > lipsync.level ? 0.6 : 0.3), dt * 60);
+          lipsync.level += (target - lipsync.level) * alpha;
+        }
+        if (relayOn && !checkingConnection && now - lastConnectionCheck >= 2000) {
+          lastConnectionCheck = now;
+          void checkStreamConnection();
+        }
         recordBox.hidden = !tracking && !pendingRecording && !savingRecording && recordReload.hidden && !recordNote.classList.contains("warn");
         if (recorder.recording) {
           if (!tracking) stopRecording();
           else if (weight > 0 && !recorder.sample(now, face)) stopRecording(); // time limit
           else recordToggle.textContent = `■ 録画停止 ${recorder.elapsed(now).toFixed(1)} / ${MAX_SECONDS} 秒`;
         }
-        if (!relayOn || now - lastSent < 1000 / 30) return;
+        if (!relayOn) return;
         const mouth = lipsync.mode === "off" ? null : lipsync.level;
         if (weight > 0 || mouth !== null) {
           sendRelay({ type: "pose", face: weight > 0 ? face : null, weight, mouth });
-          lastSent = now;
           sentIdle = false;
         } else if (!sentIdle) {
-          sendRelay({ type: "pose", face: null, weight: 0, mouth: null });
-          sentIdle = true;
+          if (sendRelay({ type: "pose", face: null, weight: 0, mouth: null })) sentIdle = true;
         }
       });
 

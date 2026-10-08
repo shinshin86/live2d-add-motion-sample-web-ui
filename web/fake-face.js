@@ -3,6 +3,8 @@
 // the head turns, nods and tilts, the eyes blink every 3 s, the mouth talks and
 // a smile comes and goes. Same shape as the tracking worker's results.
 
+import { startBackgroundClock } from "./background-clock.js";
+
 /** @typedef {import("./tracking.js").FaceResult} FaceResult */
 
 /**
@@ -49,9 +51,7 @@ export function fakeFaceResult(t) {
  */
 export function startFakeFace(onResult) {
   const start = performance.now();
-  const timer = setInterval(() => {
-    const now = performance.now();
+  return startBackgroundClock((now) => {
     onResult(fakeFaceResult((now - start) / 1000), now);
-  }, 1000 / 30);
-  return () => clearInterval(timer);
+  });
 }

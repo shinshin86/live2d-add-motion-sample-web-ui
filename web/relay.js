@@ -26,14 +26,38 @@ export async function relayAvailable() {
   }
 }
 
-/** @param {RelayMessage} message */
+let sending = false;
+let lastError = "";
+/** @type {RelayMessage[]} */
+const commands = [];
+
+/** Last send result for the control page's connection indicator. */
+export function relaySendStatus() { return { sending, error: lastError }; }
+
+/** Send one request at a time. Busy poses are dropped; discrete commands retain order.
+ * @param {RelayMessage} message */
 export function sendRelay(message) {
+  if (sending) {
+    if (message.type !== "pose") { commands.push(message); return true; }
+    return false;
+  }
+  sending = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2000);
   void fetch("live/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(message),
-    keepalive: true,
-  }).catch(() => undefined);
+    signal: controller.signal,
+  }).then((res) => {
+    lastError = res.ok ? "" : `HTTP ${res.status}`;
+  }).catch(() => { lastError = "送信できません"; }).finally(() => {
+    clearTimeout(timeout);
+    sending = false;
+    const command = commands.shift();
+    if (command) sendRelay(command);
+  });
+  return true;
 }
 
 /** @param {unknown} value @param {number} min @param {number} max */

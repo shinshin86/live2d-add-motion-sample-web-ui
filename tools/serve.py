@@ -110,7 +110,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if url.path == "/live/events":
             self.stream_events()
         elif url.path == "/live/status":
-            body = b'{"relay":true,"recordingsVersion":2}'
+            with clients_lock:
+                connected = len(clients)
+            body = json.dumps({"relay": True, "recordingsVersion": 2, "clients": connected}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))

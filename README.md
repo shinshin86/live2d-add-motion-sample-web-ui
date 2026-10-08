@@ -168,7 +168,9 @@ The recording stores what your face adds to each parameter, so the idle or emoti
 
 1. Start the server with `python3 tools/serve.py`. The streaming mode needs it; `python3 -m http.server` cannot relay
 2. In the "配信モード" card of the "カメラ" tab, choose the background (transparent, green or blue) and copy the URL of `stream.html`
-3. In OBS, add a "Browser" source with that URL
+3. In OBS, add a "Browser" source with that URL. Use the same host and port as the control page (for example, `http://localhost:8765/stream.html`); choose a canvas size such as 900 × 800
+
+Keep the control page open and its camera running. You can put it behind OBS or minimize it: face sampling and lip-sync updates use a worker clock independently of rendering. The "配信モード" card shows how many streaming connections the server has, or a warning when none are connected or sending fails. For diagnosis, append `?status=1` (or `&status=1` after another query) to the OBS source URL: "受信中" means pose messages are arriving. If it stays "待機中", check the source URL, the local server and camera state. After updating the app, restart the server and reload both pages (use OBS's browser-source refresh).
 
 `stream.html` shows only the avatar. Motions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only these parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
 
