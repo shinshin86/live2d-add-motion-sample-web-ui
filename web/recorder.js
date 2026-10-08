@@ -89,7 +89,7 @@ export class FaceRecorder {
   }
 }
 
-/** A new recording id: rec_YYYYMMDD_HHMMSS (local time). */
+/** Default motion name for a recording: rec_YYYYMMDD_HHMMSS (local time); the user can rename it. */
 export function recordingId(date = new Date()) {
   /** @param {number} n */
   const p = (n) => String(n).padStart(2, "0");

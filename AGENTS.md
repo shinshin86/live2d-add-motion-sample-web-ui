@@ -57,7 +57,9 @@ tools/
                            recordings (+ verify hold)
 motion-defs/recordings/<model>/*.json
                            Camera recordings [git-ignored]; gen_motions.py turns each
-                           into an Action motion (named after the file)
+                           into an Action motion named after the file, written to
+                           models/<model>/motion/recorded/ (the WebUI lists those
+                           under "保存したモーション")
   setup_model.py           Place a model (zip/folder → models/) + generate model.config.json
   analyze_model.py         Print parameters, safe ranges, physics outputs, base pose
   gen_motions.py           Generation engine (model-agnostic, no editing needed);
@@ -158,7 +160,7 @@ curves use the parameters.
 | `&camera=1` | Start the camera on load |
 | `&preview=0` | Start with the camera image hidden (tracking continues) |
 | `&fakeface=1` | Drive the face with synthetic tracking results (no camera) |
-| `&record=N` | Record N seconds of the face and save it (`&recordloop=1`: as a loop); with `&fakeface=1` this tests the recording path headless |
+| `&record=N` | Record N seconds of the face and save it (`&recordloop=1`: as a loop, `&recordname=<name>`: motion name); with `&fakeface=1` this tests the recording path headless |
 | `stream.html?bg=green&status=1` | Streaming page: background (transparent by default, `green`, `blue`, `<hex>`); `status=1` shows the relay state |
 
 ## Headless-browser verification pitfalls (measured; important)

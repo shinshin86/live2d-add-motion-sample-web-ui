@@ -260,6 +260,8 @@ def recording_motion(rec, base, ranges, available, lipsync_ids, ease=0.4):
 
 
 def load_recordings(stem, runtime, model3, available):
+    """Recordings -> (motions, manifest); their files go to motion/recorded/,
+    which is also how the WebUI lists them under "saved motions"."""
     folder = os.path.join(RECORDINGS_DIR, stem)
     files = sorted(glob.glob(os.path.join(folder, "*.json")))
     if not files:
@@ -311,10 +313,11 @@ def main():
                      f"(check the available parameters with tools/analyze_model.py):\n  "
                      + "\n  ".join(missing))
 
-    motion_dir = os.path.join(runtime, "motion")
-    os.makedirs(motion_dir, exist_ok=True)
+    # file per motion, relative to the model folder (recordings in a subfolder)
+    files = {name: f"motion/{'recorded/' if name in rec_motions else ''}{name}.motion3.json" for name in motions}
     for name, data in motions.items():
-        path = os.path.join(motion_dir, f"{name}.motion3.json")
+        path = os.path.join(runtime, files[name])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
             fh.write("\n")
@@ -327,7 +330,7 @@ def main():
     # setdefault so this also works on models that ship without any motions
     model3.setdefault("FileReferences", {}).setdefault("Motions", {})[GROUP] = [
         {
-            "File": f"motion/{name}.motion3.json",
+            "File": files[name],
             "Name": disp,
             "FadeInTime": fin,
             "FadeOutTime": fout,

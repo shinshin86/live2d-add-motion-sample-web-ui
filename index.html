@@ -36,19 +36,19 @@
     #panel .sub { font-size: 11px; color: #9aa0b5; margin-top: 3px; }
 
     /* Newly added motions (always expanded, highlighted) */
-    #newActions {
+    #newActions, #recordedActions {
       background: linear-gradient(160deg, #2c3052, #262a41);
       border: 1px solid #6f79c9; border-radius: 12px; padding: 12px;
     }
-    #newActions .card-title {
+    #newActions .card-title, #recordedActions .card-title {
       font-size: 12px; font-weight: 600; color: #aeb6f5; margin-bottom: 10px;
       display: flex; align-items: center; gap: 6px;
     }
-    #newActions .badge {
+    #newActions .badge, #recordedActions .badge {
       font-size: 10px; font-weight: 600; color: #1f2130;
       background: #9aa4f0; border-radius: 99px; padding: 2px 8px;
     }
-    #newActions .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    #newActions .grid, #recordedActions .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     button.motion {
       padding: 9px 10px; font-size: 13px; text-align: left; color: #e8e8ee;
       background: #33364a; border: 1px solid #474b66; border-radius: 8px;
@@ -100,7 +100,7 @@
     /* One-shot / loop sections inside the new-motion card */
     #newActions .section + .section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #4a5080; }
     #newActions .section-title { font-size: 11px; color: #cfd3e6; margin-bottom: 2px; }
-    #newActions .section-hint { font-size: 10px; color: #8f95ac; margin-bottom: 8px; }
+    #newActions .section-hint, #recordedActions .section-hint { font-size: 10px; color: #8f95ac; margin-bottom: 8px; }
     /* The motion currently playing */
     button.motion.playing { background: #50578f; border-color: #ffd479; box-shadow: 0 0 0 1px #ffd479 inset; }
     button.motion .state { display: none; font-size: 10px; color: #ffd479; margin-top: 3px; }
@@ -124,7 +124,8 @@
     }
     .tool-card .card-title { font-size: 12px; font-weight: 600; color: #cfd3e6; }
     .tool-card .card-title small { font-weight: 400; color: #8f95ac; margin-left: 6px; }
-    .tool-card .note { font-size: 10px; color: #8f95ac; min-height: 1em; line-height: 1.6; }
+    .tool-card .note { font-size: 10px; color: #8f95ac; min-height: 1em; line-height: 1.6; overflow-wrap: anywhere; }
+    .tool-card > * { min-width: 0; }
     .tool-card .note.warn { color: #ffb6a9; }
     .choices { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
     .choices button, .tool-card .action {
@@ -155,7 +156,7 @@
     #recordBox .section-title { font-size: 11px; color: #cfd3e6; }
     #recordToggle.on { color: #1f2130; background: #ff9f8f; border-color: #ff9f8f; }
     #recordSave { display: grid; gap: 6px; }
-    #recordLabel {
+    #recordLabel, #recordName {
       min-width: 0; padding: 5px 6px; font-size: 11px; color: #cfd3e6;
       background: #1f2130; border: 1px solid #3a3d52; border-radius: 6px;
     }
@@ -220,6 +221,11 @@
         </div>
       </div>
     </div>
+    <div id="recordedActions" hidden>
+      <div class="card-title">保存したモーション <span class="badge">カメラで録画</span></div>
+      <div class="section-hint">「カメラ」タブで録画して保存したモーションです</div>
+      <div class="grid" id="recordedButtons"></div>
+    </div>
     <div id="buttons"></div>
     </div>
     <div class="tabpanel" id="tabpanel-camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
@@ -240,6 +246,8 @@
         <div class="section-title">演技を録画してモーションにする</div>
         <div class="choices"><button id="recordToggle" class="action">● 録画開始</button></div>
         <div id="recordSave" hidden>
+          <label class="slider">モーション名 <input id="recordName" maxlength="48" spellcheck="false"
+            title="英数字・_・- のみ(ファイル名になります)"></label>
           <label class="slider">表示名 <input id="recordLabel" maxlength="40"></label>
           <label class="check"><input type="checkbox" id="recordLoop"> ループとして保存(話しながら再生する用。口の開閉は含めない)</label>
           <div class="choices">
@@ -667,6 +675,10 @@
       const recordToggle = document.getElementById("recordToggle");
       const recordSave = document.getElementById("recordSave");
       const recordLabel = document.getElementById("recordLabel");
+      const recordName = document.getElementById("recordName");
+      const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$/;
+      // motion names already in use (definitions and earlier recordings)
+      const takenNames = new Set((groups[NEW_GROUP] || []).map((e) => e.File.split("/").pop().replace(".motion3.json", "")));
       const recordLoop = document.getElementById("recordLoop");
       const recordNote = document.getElementById("recordNote");
       let pendingRecording = null;
@@ -680,9 +692,10 @@
           return null;
         }
         pendingRecording = rec;
+        recordName.value = rec.id;
         recordLabel.value = `録画 ${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`;
         recordSave.hidden = false;
-        recordNote.textContent = `${rec.duration.toFixed(1)} 秒録画しました。表示名を付けて保存してください`;
+        recordNote.textContent = `${rec.duration.toFixed(1)} 秒録画しました。モーション名と表示名を付けて保存してください`;
         return rec;
       }
       recordToggle.onclick = () => {
@@ -697,11 +710,24 @@
       };
       async function savePendingRecording() {
         if (!pendingRecording) return;
-        pendingRecording.label = recordLabel.value.trim().slice(0, 40) || pendingRecording.id;
+        const name = recordName.value.trim();
+        if (!NAME_RE.test(name)) {
+          recordNote.textContent = "モーション名は英数字・_・- で付けてください(先頭は英数字、48文字まで)";
+          return;
+        }
+        if (takenNames.has(name)) {
+          recordNote.textContent = `「${name}」はすでにあるモーション名です。別の名前にしてください`;
+          return;
+        }
+        pendingRecording.id = name;
+        pendingRecording.label = recordLabel.value.trim().slice(0, 40) || name;
         pendingRecording.loop = recordLoop.checked;
         try {
           const where = await saveRecording(pendingRecording, modelStem, relayOn);
-          recordNote.textContent = `保存しました: ${where}。python3 tools/gen_motions.py を実行すると「今回追加したモーション」に追加されます`;
+          takenNames.add(name);
+          recordNote.textContent = relayOn
+            ? `「${pendingRecording.label}」(${name})を保存しました。python3 tools/gen_motions.py を実行してページを再読み込みすると、「モーション」タブの「保存したモーション」に表示されます`
+            : where;
           pendingRecording = null;
           recordSave.hidden = true;
         } catch (e) {
@@ -816,13 +842,17 @@
       // Newly added motions: always expanded in the top card, one-shots and loops apart
       const newButtons = document.getElementById("newButtons");
       const loopButtons = document.getElementById("loopButtons");
+      const recordedButtons = document.getElementById("recordedButtons");
       const newEntries = groups[NEW_GROUP] || [];
       const newLoops = await Promise.all(newEntries.map((_, i) => isLoopMotion(NEW_GROUP, i)));
       newEntries.forEach((entry, index) => {
         const btn = motionButton(NEW_GROUP, entry, index);
-        (newLoops[index] ? loopButtons : newButtons).appendChild(btn);
+        const recorded = entry.File.includes("/recorded/");
+        (recorded ? recordedButtons : newLoops[index] ? loopButtons : newButtons).appendChild(btn);
       });
-      document.getElementById("loopSection").hidden = !newLoops.some(Boolean);
+      const isRecorded = (entry) => entry.File.includes("/recorded/");
+      document.getElementById("loopSection").hidden = !newEntries.some((e, i) => newLoops[i] && !isRecorded(e));
+      document.getElementById("recordedActions").hidden = !newEntries.some(isRecorded);
 
       // Pre-existing motions: one collapsible section per group (closed by default)
       const container = document.getElementById("buttons");
@@ -867,13 +897,15 @@
       }
       // &camera=1 starts the camera on load
       if (params.get("camera")) void camera.start();
-      // &record=N records N seconds of the face and saves it (&recordloop=1: as a loop)
+      // &record=N records N seconds of the face and saves it (&recordloop=1: as a loop,
+      // &recordname=<name>: the motion name)
       const recordSeconds = Number(params.get("record"));
       if (recordSeconds > 0) {
         setTimeout(() => recordToggle.click(), 500);
         setTimeout(() => {
           if (stopRecording()) {
             recordLabel.value = "テスト録画";
+            if (params.get("recordname")) recordName.value = params.get("recordname");
             recordLoop.checked = !!params.get("recordloop");
             void savePendingRecording();
           }

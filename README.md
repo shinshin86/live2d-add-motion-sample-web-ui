@@ -68,7 +68,7 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
 - "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
 - The panel has two tabs: "モーション" (motions: everything above) and "カメラ" (camera: face tracking, recording and the streaming mode for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)). The camera keeps running when you switch tabs, so you can play emotion motions while it drives the face; a red dot on the tab shows that it is on
-- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&tab=camera` (open the camera tab), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop), `?uitest=1` (automated drag/zoom test)
+- Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&tab=camera` (open the camera tab), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop, `&recordname=<name>` the motion name), `?uitest=1` (automated drag/zoom test)
 
 ## Adding your own motions
 
@@ -147,12 +147,14 @@ Camera frames are processed in the browser (a Web Worker running MediaPipe Face 
 
 ### Recording a performance as a motion
 
-While the camera runs, "● 録画開始" (start recording) records your face for up to 60 seconds. Give it a name and save it; check "ループとして保存" (save as a loop) for a motion to play while speaking. Then run:
+While the camera runs, "● 録画開始" (start recording) records your face for up to 60 seconds. Give it a motion name (letters, digits, `_` and `-`; it becomes the file name) and a display name, and save it; check "ループとして保存" (save as a loop) for a motion to play while speaking. Then run:
 
 ```bash
 python3 tools/gen_motions.py   # the recording becomes a motion in the Action group
 python3 tools/validate_motions.py
 ```
+
+Reload the page: saved recordings are listed in their own "保存したモーション" (saved motions) card in the "モーション" tab.
 
 With `python3 tools/serve.py` the file is saved to `motion-defs/recordings/<model-name>/` (git-ignored, like the definitions); with another server it is downloaded and you move it there. The recording stores what your face adds to each parameter, so the idle or emotion motion that happened to be playing is not baked in. The generator puts it back on the model's base pose, keeps it within the observed value ranges, reduces it to keyframes, and eases in from and out to the base pose (a loop instead blends its end into its start and leaves out the lip-sync parameters). The result passes `validate_motions.py` as is.
 

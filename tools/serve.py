@@ -55,7 +55,8 @@ def valid_recording(rec):
     """Check a recording against web/recorder.js's format before writing it."""
     if not isinstance(rec, dict) or rec.get("version") != 1 or rec.get("fps") != 30:
         return False
-    if not re.fullmatch(r"rec_\d{8}_\d{6}", str(rec.get("id"))):
+    # the motion name chosen in the WebUI; it becomes the file and motion name
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,47}", str(rec.get("id"))):
         return False
     if not isinstance(rec.get("label"), str) or not 0 < len(rec["label"]) <= 40:
         return False
