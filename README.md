@@ -147,16 +147,22 @@ Camera frames are processed in the browser (a Web Worker running MediaPipe Face 
 
 ### Recording a performance as a motion
 
-While the camera runs, "● 録画開始" (start recording) records your face for up to 60 seconds. Give it a motion name (letters, digits, `_` and `-`; it becomes the file name) and a display name, and save it; check "ループとして保存" (save as a loop) for a motion to play while speaking. Then run:
+While the camera runs, "● 録画開始" (start recording) records your face for up to 60 seconds. Press it again to stop, give the recording a motion name (letters, digits, `_` and `-`; it becomes the file name) and a display name, then save it. Check "ループとして保存" (save as a loop) for a motion to play while speaking.
+
+With `python3 tools/serve.py`, saving writes the recording to `motion-defs/recordings/<model-name>/` (git-ignored), then automatically generates and validates the motions. Once it finishes, press "再読み込みして表示" (reload to display): the "モーション" tab opens with the recording in "保存したモーション" (saved motions). If generation or validation fails, the source recording is kept; the page shows an error and the server's terminal shows the details. Fix the reported problem and run the commands below before reloading.
+
+After updating the app, restart `tools/serve.py` and force-reload the page so the server and page use the same version. An older server is detected before saving and the page asks you to restart it.
+
+With another server, the recording is downloaded. Move it to `motion-defs/recordings/<model-name>/`, then run:
 
 ```bash
 python3 tools/gen_motions.py   # the recording becomes a motion in the Action group
 python3 tools/validate_motions.py
 ```
 
-Reload the page: saved recordings are listed in their own "保存したモーション" (saved motions) card in the "モーション" tab.
+Reload the page to display the saved motion.
 
-With `python3 tools/serve.py` the file is saved to `motion-defs/recordings/<model-name>/` (git-ignored, like the definitions); with another server it is downloaded and you move it there. The recording stores what your face adds to each parameter, so the idle or emotion motion that happened to be playing is not baked in. The generator puts it back on the model's base pose, keeps it within the observed value ranges, reduces it to keyframes, and eases in from and out to the base pose (a loop instead blends its end into its start and leaves out the lip-sync parameters). The result passes `validate_motions.py` as is.
+The recording stores what your face adds to each parameter, so the idle or emotion motion that happened to be playing is not baked in. The generator puts it back on the model's base pose, keeps it within the observed value ranges, reduces it to keyframes, and eases in from and out to the base pose (a loop instead blends its end into its start and leaves out the lip-sync parameters). The result passes `validate_motions.py` as is.
 
 ### Streaming mode (OBS)
 

@@ -102,15 +102,23 @@ export function recordingId(date = new Date()) {
  * or download the file when the page is served without it.
  * @param {Recording} recording @param {string} model the model3.json stem
  * @param {boolean} server tools/serve.py is available
- * @returns {Promise<string>} where it went
+ * @returns {Promise<{path: string, ready: boolean, error?: string | null}>} save and generation result
  */
 export async function saveRecording(recording, model, server) {
   const body = JSON.stringify({ model, recording });
   if (server) {
+    const status = await fetch("live/status", { cache: "no-store" });
+    const capabilities = await status.json().catch(() => null);
+    if (!status.ok || capabilities?.recordingsVersion !== 2) {
+      throw new Error("保存していません: サーバーがこのページの録画保存に対応していません。tools/serve.py を停止して起動し直し、ページを強制再読み込みしてください");
+    }
     const res = await fetch("recordings", { method: "POST", headers: { "Content-Type": "application/json" }, body });
     if (res.status === 409) throw new Error("同じモーション名の録画がすでにあります。別の名前にしてください");
+    const result = await res.json().catch(() => null);
+    // Generation can fail after the source file has already been saved.
+    if (result?.saved === true) return result;
     if (!res.ok) throw new Error(`保存できませんでした (HTTP ${res.status})。サーバーのターミナルに理由が表示されます`);
-    return (await res.json()).path;
+    return { path: result?.path || "", ready: false, error: "録画は保存済みです。サーバーを再起動してから生成・検証してください" };
   }
   const url = URL.createObjectURL(new Blob([JSON.stringify(recording)], { type: "application/json" }));
   const a = document.createElement("a");
@@ -118,5 +126,5 @@ export async function saveRecording(recording, model, server) {
   a.download = `${recording.id}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  return `ダウンロード: ${recording.id}.json (motion-defs/recordings/${model}/ に置いてください)`;
+  return { ready: false, path: `ダウンロード: ${recording.id}.json (motion-defs/recordings/${model}/ に置き、python3 tools/gen_motions.py と python3 tools/validate_motions.py を実行してから再読み込みしてください)` };
 }

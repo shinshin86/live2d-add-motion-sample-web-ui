@@ -54,7 +54,7 @@ vendor/mediapipe/          MediaPipe face model + license (the runtime comes fro
                            pinned to 0.10.21; do not upgrade without checking for telemetry)
 tools/
   serve.py                 Local server: static files, relay to stream.html, saving
-                           recordings (+ verify hold)
+                           recordings + automatic generation/validation (+ verify hold)
 motion-defs/recordings/<model>/*.json
                            Camera recordings [git-ignored]; gen_motions.py turns each
                            into an Action motion named after the file, written to
@@ -143,6 +143,20 @@ motions use them. Hiyori examples:
 
 For a new model, rediscover this kind of quirk from how its existing motion
 curves use the parameters.
+
+## Saving camera recordings
+
+With `tools/serve.py`, `POST /recordings` saves the source JSON, then runs
+`gen_motions.py` and `validate_motions.py` using the current Python interpreter.
+Saving and regeneration are serialized. `GET /live/status` advertises
+`recordingsVersion: 2`; the current recording client checks this before saving
+and asks for a server restart/force-reload on mismatch. Restart the server and
+force-reload the page after updates. A successful reply includes `ready: true`;
+the WebUI offers "再読み込みして表示" to reload the model and open the saved-motion
+list. If either command fails, the source JSON is kept, the page shows an error,
+and the server prints details. Fix the cause and run generation/validation before
+reloading. A plain static server keeps the download fallback and requires these
+commands manually.
 
 ## WebUI debug hooks (index.html)
 

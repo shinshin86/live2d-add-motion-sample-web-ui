@@ -8,8 +8,8 @@ Endpoints besides the static files:
   POST /live/send          one JSON message from the control page
   GET  /live/events        Server-Sent Events stream of those messages
   POST /recordings         save a camera recording (web/recorder.js) as
-                           motion-defs/recordings/<model>/<id>.json; the next
-                           tools/gen_motions.py run turns it into a motion
+                           motion-defs/recordings/<model>/<id>.json, then
+                           generate and validate motions before replying
   GET  /__verify_hold?s=N  answers after N seconds (tools/verify_browser.sh)
 
 Only small JSON objects with a known "type" are relayed. Camera frames and
@@ -29,6 +29,7 @@ import math
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -43,6 +44,7 @@ KEEPALIVE_SECONDS = 15
 
 clients = set()  # one queue per connected /live/events stream
 clients_lock = threading.Lock()
+recordings_lock = threading.Lock()  # serialize writes and model regeneration
 
 
 def current_model_stem():
@@ -106,7 +108,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if url.path == "/live/events":
             self.stream_events()
         elif url.path == "/live/status":
-            body = b'{"relay":true}'
+            body = b'{"relay":true,"recordingsVersion":2}'
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -155,6 +157,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def save_recording(self):
+        with recordings_lock:
+            self.save_recording_locked()
+
+    def save_recording_locked(self):
         length = int(self.headers.get("Content-Length") or 0)
         if not 0 < length <= MAX_RECORDING_BYTES:
             self.send_error(413)
@@ -166,8 +172,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(400)
             return
         rec = body.get("recording") if isinstance(body, dict) else None
-        if body.get("model") != stem:
-            print(f"recording rejected: it is for model {body.get('model')!r}, the current model is {stem!r}")
+        if not isinstance(body, dict) or body.get("model") != stem:
+            requested = body.get("model") if isinstance(body, dict) else None
+            print(f"recording rejected: it is for model {requested!r}, the current model is {stem!r}")
             self.send_error(400, "not the current model")
             return
         if not valid_recording(rec):
@@ -184,9 +191,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         with open(target, "w") as fh:
             json.dump(rec, fh, ensure_ascii=False, separators=(",", ":"))
             fh.write("\n")
-        print(f"recording saved: {os.path.relpath(target, ROOT)}  (run python3 tools/gen_motions.py)")
-        reply = json.dumps({"path": os.path.relpath(target, ROOT)}).encode()
-        self.send_response(201)
+        path = os.path.relpath(target, ROOT)
+        print(f"recording saved: {path}", flush=True)
+        error = None
+        for script in ("gen_motions.py", "validate_motions.py"):
+            try:
+                result = subprocess.run(
+                    [sys.executable, os.path.join(ROOT, "tools", script)],
+                    cwd=ROOT, capture_output=True, text=True, timeout=120,
+                )
+                print(f"{script}: exit {result.returncode}\n{result.stdout}{result.stderr}", flush=True)
+                if result.returncode != 0:
+                    error = f"{script} が失敗しました。録画は保存済みです。サーバーのターミナルで詳細を確認してください"
+                    break
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                print(f"{script} failed: {exc}", flush=True)
+                error = f"{script} を完了できませんでした。録画は保存済みです。サーバーのターミナルで詳細を確認してください"
+                break
+        reply = json.dumps({"path": path, "saved": True, "ready": error is None,
+                            "error": error}, ensure_ascii=False).encode()
+        self.send_response(500 if error else 201)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()

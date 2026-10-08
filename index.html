@@ -256,6 +256,7 @@
           </div>
         </div>
         <div id="recordNote" class="note">顔の動きを最長60秒録画できます</div>
+        <button id="recordReload" class="action" hidden>再読み込みして表示</button>
       </div>
     </div>
     <div id="streamPanel" class="tool-card">
@@ -293,7 +294,7 @@
     import { createMotionPlayer } from "./web/motion-player.js";
     import { relayAvailable, sendRelay } from "./web/relay.js";
     import { FacePose } from "./web/tracking.js";
-    import { FaceRecorder, MAX_SECONDS, recordingId, saveRecording } from "./web/recorder.js";
+    import { FaceRecorder, MAX_SECONDS, recordingId, saveRecording } from "./web/recorder.js?v=2";
 
     const status = document.getElementById("status");
 
@@ -681,6 +682,14 @@
       const takenNames = new Set((groups[NEW_GROUP] || []).map((e) => e.File.split("/").pop().replace(".motion3.json", "")));
       const recordLoop = document.getElementById("recordLoop");
       const recordNote = document.getElementById("recordNote");
+      const recordReload = document.getElementById("recordReload");
+      recordReload.onclick = () => {
+        const url = new URL(location.href);
+        for (const key of ["record", "recordloop", "recordname", "camera", "fakeface", "play", "freeze", "hold"]) url.searchParams.delete(key);
+        url.searchParams.set("tab", "motion");
+        location.href = url.href;
+      };
+      let savingRecording = false;
       let pendingRecording = null;
       function stopRecording() {
         const now = new Date();
@@ -710,7 +719,12 @@
         recordToggle.classList.add("on");
       };
       async function savePendingRecording() {
-        if (!pendingRecording) return;
+        if (savingRecording) return;
+        if (!pendingRecording) {
+          recordNote.textContent = "保存する録画がありません。録画開始、録画停止の順に操作してください";
+          recordNote.classList.add("warn");
+          return;
+        }
         const name = recordName.value.trim();
         const fail = (message) => {
           recordNote.textContent = message;
@@ -728,16 +742,26 @@
         pendingRecording.id = name;
         pendingRecording.label = recordLabel.value.trim().slice(0, 40) || name;
         pendingRecording.loop = recordLoop.checked;
+        savingRecording = true;
+        const controls = [recordToggle, recordName, recordLabel, recordLoop,
+          document.getElementById("recordSaveButton"), document.getElementById("recordDiscard")];
+        controls.forEach((control) => { control.disabled = true; });
+        recordNote.textContent = relayOn ? "録画を保存し、モーションを生成・検証しています…" : "録画をダウンロードしています…";
         try {
-          const where = await saveRecording(pendingRecording, modelStem, relayOn);
+          const result = await saveRecording(pendingRecording, modelStem, relayOn);
           takenNames.add(name);
-          recordNote.textContent = relayOn
-            ? `「${pendingRecording.label}」(${name})を保存しました。python3 tools/gen_motions.py を実行してページを再読み込みすると、「モーション」タブの「保存したモーション」に表示されます`
-            : where;
+          recordNote.textContent = result.error || (result.ready
+            ? `「${pendingRecording.label}」(${name})を保存し、生成・検証しました。「再読み込みして表示」で「保存したモーション」に表示できます`
+            : result.path);
+          recordNote.classList.toggle("warn", !!result.error);
+          recordReload.hidden = !result.ready;
           pendingRecording = null;
           recordSave.hidden = true;
         } catch (e) {
           fail(e.message);
+        } finally {
+          savingRecording = false;
+          controls.forEach((control) => { control.disabled = false; });
         }
       }
       document.getElementById("recordSaveButton").onclick = savePendingRecording;
@@ -804,7 +828,7 @@
           }
         }
         faceDriver.set(weight > 0 ? face : null, weight);
-        recordBox.hidden = !tracking;
+        recordBox.hidden = !tracking && !pendingRecording && !savingRecording && recordReload.hidden && !recordNote.classList.contains("warn");
         if (recorder.recording) {
           if (!tracking) stopRecording();
           else if (weight > 0 && !recorder.sample(now, face)) stopRecording(); // time limit
