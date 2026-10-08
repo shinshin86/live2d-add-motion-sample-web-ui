@@ -8,9 +8,9 @@
 //   replace   gaze and mouth openness come from the face
 // Values are clamped to each parameter's range in the model.
 //
-// Live2D's horizontal axes run the other way from web/tracking.js's face
-// parameters: turn, tilt and gaze are negated here, so the avatar moves to the
-// same side of the screen as the face in the camera preview.
+// Live2D's head rotation axes run the other way from web/tracking.js's face
+// parameters: turn, nod, tilt and horizontal gaze are negated here, so the
+// avatar moves the same way as the face in the camera preview (look up -> up).
 
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 
@@ -31,8 +31,8 @@ const REPLACE = { gazeX: ["ParamEyeBallX"], gazeY: ["ParamEyeBallY"], mouthOpen:
  * @typedef {{ id: string, mode: FaceMode, value: number }} FaceContribution
  */
 
-/** Face parameters whose sign flips for Live2D (horizontal axes). */
-const HORIZONTAL = new Set(["angleX", "angleZ", "bodyAngleX", "bodyAngleZ", "gazeX"]);
+/** Face parameters whose sign flips for Live2D. */
+const FLIPPED = new Set(["angleX", "angleY", "angleZ", "bodyAngleX", "bodyAngleZ", "gazeX"]);
 
 /**
  * What the face contributes to each Live2D parameter (also what a recording stores).
@@ -45,7 +45,7 @@ export function faceToLive2D(params) {
   for (const [mode, table] of /** @type {[FaceMode, Record<string, string[]>][]} */ (
     [["add", ADD], ["multiply", MULTIPLY], ["replace", REPLACE]])) {
     for (const [key, ids] of Object.entries(table)) {
-      const value = HORIZONTAL.has(key) ? -params[key] : params[key];
+      const value = FLIPPED.has(key) ? -params[key] : params[key];
       for (const id of ids) out.push({ id, mode, value });
     }
   }
