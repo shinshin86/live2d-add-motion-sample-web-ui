@@ -229,12 +229,12 @@
         <button id="cameraToggle" class="action">● カメラ開始</button>
         <button id="calibrate" class="action" disabled>正面をリセット</button>
       </div>
-      <video id="cameraPreview" muted playsinline hidden></video>
+      <video id="cameraPreview" class="unmirrored" muted playsinline hidden></video>
       <div id="previewHidden" hidden>映像は非表示です(トラッキングは動作中)</div>
       <button id="previewToggle" class="action" hidden>映像を隠す</button>
       <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="2" step="0.05" value="1"></label>
       <label class="slider">なめらかさ <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.35"></label>
-      <label class="check"><input type="checkbox" id="mirror" checked> 鏡のように動かす(左右反転)</label>
+      <label class="check"><input type="checkbox" id="mirror"> 鏡のように動かす(左右反転)</label>
       <div id="cameraNote" class="note">カメラ映像はブラウザの中だけで処理され、外部には送信されません</div>
       <div id="recordBox" hidden>
         <div class="section-title">演技を録画してモーションにする</div>
