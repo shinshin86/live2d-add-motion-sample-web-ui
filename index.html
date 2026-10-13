@@ -61,6 +61,21 @@
     button.motion.new:hover { background: #474d7a; }
     button.motion.new::before { content: "★ "; color: #ffd479; }
     button.motion .file { display: block; font-size: 10px; color: #8f95ac; margin-top: 2px; }
+    .hotkey-badge { display: inline-block; margin-top: 5px; padding: 1px 5px; border-radius: 4px;
+      border: 1px solid #697198; font-size: 10px; font-family: inherit; color: #cfd3e6; background: #262838; }
+    #hotkeySettings summary { cursor: pointer; font-size: 12px; color: #cfd3e6; }
+    #hotkeySettings summary .note { display: block; margin-top: 4px; }
+    #hotkeySettings[open] summary { margin-bottom: 10px; }
+    #hotkeyRows { display: grid; gap: 6px; }
+    .hotkey-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(70px, 1fr);
+      align-items: center; gap: 8px; font-size: 11px; overflow-wrap: anywhere; }
+    #hotkeyNotice { margin: 8px 0; }
+    #remoteControls { border-top: 1px solid #3a3d52; margin-top: 12px; padding-top: 12px; }
+    #remoteFields { border: 0; display: grid; gap: 6px; min-width: 0; margin-top: 8px; }
+    #remoteFields label { font-size: 11px; color: #b6bccf; }
+    #remoteFields input, #remoteFields select, #remoteCopyText { width: 100%; min-width: 0;
+      padding: 6px; border: 1px solid #474b66; border-radius: 5px; background: #1f2130; color: #e8e8ee; font-size: 11px; }
+    #remoteCopyText { min-height: 80px; }
 
     /* Pre-existing motions (collapsible) */
     #buttons { display: grid; gap: 8px; }
@@ -239,6 +254,34 @@
       <div class="grid" id="recordedButtons"></div>
     </div>
     <div id="buttons"></div>
+    <details id="hotkeySettings" class="tool-card">
+      <summary>ショートカットキー<span class="note">操作ページが前面のときに使えます</span></summary>
+      <div class="note">同じキーは再生を続けます。初期設定は 0 / Esc で通常に戻します。入力欄では無効です。</div>
+      <div id="hotkeyRows"></div>
+      <div id="hotkeyNotice" class="note" role="status" aria-live="polite">キーを押して変更。Shift / Alt も使えます。Esc は常に「通常に戻す」です。</div>
+      <button id="resetHotkeys" class="action">初期の割り当てに戻す</button>
+      <div id="remoteControls">
+        <div class="card-title">外部アプリから切り替え</div>
+        <div id="remoteNote" class="note" role="status">接続を確認しています…</div>
+        <fieldset id="remoteFields" disabled aria-label="外部アプリからの切り替え設定">
+          <label for="remoteUrl">リクエスト URL</label>
+          <div class="url-row"><input id="remoteUrl" readonly><button id="copyRemoteUrl" class="action">コピー</button></div>
+          <label for="remoteToken">トークン</label>
+          <input id="remoteToken" type="password" readonly autocomplete="off">
+          <div class="choices">
+            <button id="showRemoteToken" class="action" aria-pressed="false">表示</button>
+            <button id="copyRemoteToken" class="action">トークンをコピー</button>
+          </div>
+          <label for="remoteMotion">curl 例のモーション</label>
+          <select id="remoteMotion"></select>
+          <button id="copyMotionCurl" class="action">モーションの curl 例をコピー</button>
+          <button id="copyStopCurl" class="action">通常に戻す curl 例をコピー</button>
+          <textarea id="remoteCopyText" readonly hidden aria-label="手動コピー用テキスト"></textarea>
+          <button id="regenerateToken" class="action">トークンを再生成</button>
+          <div class="note">再生成すると、古いトークンを使う外部アプリの操作は 401 エラーになります。</div>
+        </fieldset>
+      </div>
+    </details>
     </div>
     <div class="tabpanel" id="tabpanel-camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
     <div id="cameraPanel" class="tool-card">
@@ -311,6 +354,8 @@
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
     import { createMotionPlayer } from "./web/motion-player.js";
+    import { attachHotkeys } from "./web/hotkeys.js";
+    import { attachMotionRemote } from "./web/motion-remote.js";
     import { relayAvailable, sendRelay, relaySendStatus } from "./web/relay.js";
     import { FacePose } from "./web/tracking.js";
     import { FaceRecorder, MAX_SECONDS, recordingId, recordingTimestamp, recordingCaption, saveRecording } from "./web/recorder.js?v=3";
@@ -415,9 +460,12 @@
       let frozen = false; // set by the &freeze= debug hook
       const stopLoop = document.getElementById("stopLoop");
       const buttons = {}; // "group:index" -> motion button
+      let playingKey = null;
+      let actionNotice = false;
 
       // Show which motion is playing; the stop button only works during a loop
       function showPlaying(key, loop) {
+        playingKey = key;
         for (const [k, btn] of Object.entries(buttons)) {
           btn.classList.toggle("playing", k === key);
           btn.classList.toggle("looping", k === key && loop);
@@ -426,6 +474,7 @@
         stopLoop.disabled = !(key && loop);
       }
       async function playMotion(group, index, label) {
+        actionNotice = false;
         const { ok, loop, motion } = await player.play(group, index);
         if (ok && relayOn) sendRelay({ type: "motion", group, index });
         current = ok && loop
@@ -435,19 +484,21 @@
         return { ok, loop };
       }
       // Stop now: the idle fades in from the current pose
-      stopLoop.onclick = () => {
+      function returnToIdle() {
+        actionNotice = false;
         current = null;
         player.stop();
         if (relayOn) sendRelay({ type: "stop" });
         showPlaying(null, false);
-        status.textContent = "ループを停止しました";
-      };
+        status.textContent = "通常に戻しました";
+      }
+      stopLoop.onclick = returnToIdle;
       // Stop at the end of the running cycle instead
       function finishAfterThisCycle() {
         if (current) current.motion.setIsLoop(false);
       }
       app.ticker.add(() => {
-        if (!current || frozen) return;
+        if (!current || frozen || actionNotice) return;
         const cycle = Math.floor((performance.now() - current.startedAt) / 1000 / current.duration) + 1;
         const text = `ループ再生中: ${current.label} (${cycle}周目)`;
         if (status.textContent !== text) status.textContent = text;
@@ -944,6 +995,36 @@
       const isRecorded = (entry) => entry.File.includes("/recorded/");
       document.getElementById("loopSection").hidden = !newEntries.some((e, i) => newLoops[i] && !isRecorded(e));
       document.getElementById("recordedActions").hidden = !newEntries.some(isRecorded);
+
+      // Stable IDs in visible order: one-shots, loops, then camera recordings.
+      const actions = newEntries.map((entry, index) => ({
+        id: entry.File.split("/").pop().replace(/\.motion3\.json$/, ""),
+        label: entry.Name || entry.File.split("/").pop().replace(/\.motion3\.json$/, ""),
+        index, button: buttons[`${NEW_GROUP}:${index}`],
+      })).sort((a, b) => {
+        const section = (action) => isRecorded(newEntries[action.index]) ? 2 : newLoops[action.index] ? 1 : 0;
+        return section(a) - section(b);
+      });
+      // Serialize key/remote requests so a second press cannot restart a loading motion.
+      let actionRequests = Promise.resolve();
+      function requestAction(id) {
+        actionRequests = actionRequests.then(async () => {
+          if (id === null) { returnToIdle(); return; }
+          const action = actions.find((entry) => entry.id === id);
+          if (!action) {
+            actionNotice = true;
+            status.textContent = `モーションが見つかりません: ${id}。ページを再読み込みしてください`;
+            return;
+          }
+          if (playingKey === `${NEW_GROUP}:${action.index}`) return;
+          status.textContent = `再生中: ${action.label}`;
+          const { ok } = await playMotion(NEW_GROUP, action.index, action.label);
+          if (!ok) status.textContent = `再生失敗: ${action.label}`;
+        }).catch((error) => { status.textContent = `再生失敗: ${error.message}`; });
+      }
+      attachHotkeys(MODEL_JSON, actions, requestAction);
+      void attachMotionRemote(relayOn, actions, requestAction,
+        () => actions.find((action) => playingKey === `${NEW_GROUP}:${action.index}`)?.id || null);
 
       // Pre-existing motions: one collapsible section per group (closed by default)
       const container = document.getElementById("buttons");

@@ -4,9 +4,13 @@ live messages from the control page (index.html) to the streaming page
 (stream.html), e.g. an OBS browser source.
 
 Endpoints besides the static files:
-  GET  /live/status        {"relay": true} (the WebUI checks for the relay with it)
+  GET  /live/status        relay capabilities, stream clients, and controllers
   POST /live/send          one JSON message from the control page
   GET  /live/events        Server-Sent Events stream of those messages
+  POST /live/motion        authenticated motion ID/name or stop from external apps
+  GET  /live/commands      Server-Sent Events for control pages (separate from events)
+  GET  /live/token         read the persistent external-control token
+  POST /live/token         regenerate the token (same-origin JSON)
   POST /recordings         save a camera recording (web/recorder.js) as
                            motion-defs/recordings/<model>/<id>.json, then
                            generate and validate motions before replying
@@ -16,21 +20,24 @@ Only small JSON objects with a known "type" are relayed. Camera frames and
 microphone audio never reach this server: the control page sends only the
 resulting parameters (head angles, mouth openness, ...) and motion commands.
 
-The server binds to 127.0.0.1, so other machines cannot reach it, and it only
-accepts POSTs with a JSON content type from its own pages, so other websites
-open in the browser cannot post to it.
+The server binds to 127.0.0.1, so other machines cannot reach it. POSTs require
+JSON and reject cross-origin browser requests; external apps may omit Origin.
+External motion commands require a token persisted in the git-ignored .live-token.
 
 Usage: python3 tools/serve.py [--port 8765]
 """
 import argparse
+import hmac
 import http.server
 import json
 import math
 import os
 import queue
 import re
+import secrets
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -43,8 +50,55 @@ RECORDING_MODES = {"add", "multiply", "replace"}
 KEEPALIVE_SECONDS = 15
 
 clients = set()  # one queue per connected /live/events stream
+controllers = set()  # separate queues for /live/commands
 clients_lock = threading.Lock()
 recordings_lock = threading.Lock()  # serialize writes and model regeneration
+token_lock = threading.Lock()
+
+
+def live_token(regenerate=False):
+    """Persist across restarts; replace atomically so readers never see a partial token."""
+    path = os.path.join(ROOT, ".live-token")
+    with token_lock:
+        if not regenerate:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    token = fh.read().strip()
+                if token:
+                    return token
+            except FileNotFoundError:
+                pass
+        token = secrets.token_urlsafe(24)
+        with tempfile.NamedTemporaryFile(mode="w", dir=ROOT, prefix=".live-token-", delete=False) as fh:
+            temporary = fh.name  # NamedTemporaryFile creates it with mode 0600
+            fh.write(token + "\n")
+        try:
+            if regenerate:
+                os.replace(temporary, path)
+            else:
+                try:
+                    os.link(temporary, path)  # another server may have created it first
+                except FileExistsError:
+                    with open(path, encoding="utf-8") as fh:
+                        token = fh.read().strip()
+                    if not token:
+                        raise ValueError(".live-token is empty; remove it before restarting")
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        return token
+
+
+def action_entries():
+    """Read each request so newly saved recordings are available immediately."""
+    with open(os.path.join(ROOT, "model.config.json"), encoding="utf-8") as fh:
+        model_path = json.load(fh)["model3"]
+    with open(os.path.join(ROOT, model_path), encoding="utf-8") as fh:
+        return json.load(fh)["FileReferences"].get("Motions", {}).get("Action", [])
+
+
+def motion_id(entry):
+    return os.path.basename(entry["File"]).removesuffix(".motion3.json")
 
 
 def current_model_stem():
@@ -102,22 +156,46 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         # always revalidate, so a reload picks up edited modules and regenerated motions
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", "no-store" if self.path.split("?")[0] == "/live/token" else "no-cache")
         super().end_headers()
+
+    def json_reply(self, code, body):
+        payload = json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def local_host(self):
+        port = self.server.server_port
+        return self.headers.get("Host") in {f"localhost:{port}", f"127.0.0.1:{port}"}
+
+    def send_head(self):
+        # Static serving must not bypass the token endpoint's Host check (also HEAD).
+        path = os.path.realpath(self.translate_path(self.path))
+        if os.path.dirname(path) == os.path.realpath(ROOT) and os.path.basename(path).startswith(".live-token"):
+            self.send_error(403)
+            return None
+        return super().send_head()
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
+        if url.path in {"/live/token", "/live/commands", "/live/motion"} and not self.local_host():
+            self.json_reply(403, {"error": "localhost または 127.0.0.1 を使用してください"})
+            return
         if url.path == "/live/events":
-            self.stream_events()
+            self.stream_events(clients)
+        elif url.path == "/live/commands":
+            self.stream_events(controllers)
+        elif url.path == "/live/token":
+            self.json_reply(200, {"token": live_token()})
         elif url.path == "/live/status":
             with clients_lock:
                 connected = len(clients)
-            body = json.dumps({"relay": True, "recordingsVersion": 2, "clients": connected}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+                controlling = len(controllers)
+            self.json_reply(200, {"relay": True, "recordingsVersion": 2, "clients": connected,
+                                  "motionRemote": 1, "controllers": controlling})
         elif url.path == "/__verify_hold":
             time.sleep(float(urllib.parse.parse_qs(url.query).get("s", ["0"])[0]))
             self.send_response(204)
@@ -134,10 +212,31 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return origin is None or urllib.parse.urlparse(origin).netloc == self.headers.get("Host")
 
     def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path in {"/live/token", "/live/motion"} and not self.local_host():
+            self.json_reply(403, {"error": "localhost または 127.0.0.1 を使用してください"})
+            return
+        if path == "/live/motion":
+            bearer = self.headers.get("Authorization", "")
+            supplied = [self.headers.get("X-Live-Token", "")]
+            if bearer.startswith("Bearer "):
+                supplied.append(bearer[7:])
+            token = live_token().encode()
+            if not any(hmac.compare_digest(value.encode(), token) for value in supplied):
+                self.json_reply(401, {"error": "トークンが一致しません"})
+                return
         if not self.same_origin_json():
             self.send_error(403)
             return
-        path = urllib.parse.urlparse(self.path).path
+        if path in {"/live/token", "/live/motion"}:
+            message = self.read_command()
+            if message is None:
+                return
+            if path == "/live/token":
+                self.json_reply(200, {"token": live_token(regenerate=True)})
+            else:
+                self.send_motion_command(message)
+            return
         if path == "/recordings":
             self.save_recording()
             return
@@ -157,6 +256,64 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(400)
             return
         broadcast(json.dumps(message, separators=(",", ":")))
+        self.send_response(204)
+        self.end_headers()
+
+    def read_command(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self.json_reply(400, {"error": "Content-Length が不正です"})
+            return None
+        if not 0 < length <= MAX_MESSAGE_BYTES:
+            self.json_reply(413, {"error": "JSON のサイズが範囲外です"})
+            return None
+        try:
+            message = json.loads(self.rfile.read(length))
+        except ValueError:
+            self.json_reply(400, {"error": "JSON が不正です"})
+            return None
+        if not isinstance(message, dict):
+            self.json_reply(400, {"error": "JSON オブジェクトを指定してください"})
+            return None
+        return message
+
+    def send_motion_command(self, message):
+        if set(message) == {"stop"} and message["stop"] is True:
+            command = {"type": "stop"}
+        elif set(message) == {"motion"} and isinstance(message["motion"], str) and message["motion"]:
+            try:
+                entries = action_entries()
+                matches = [e for e in entries if motion_id(e) == message["motion"]]
+                if not matches:
+                    matches = [e for e in entries if e.get("Name") == message["motion"]]
+            except (OSError, ValueError, KeyError, TypeError):
+                self.json_reply(503, {"error": "現在のモデルのモーション一覧を読み込めません"})
+                return
+            if not matches:
+                self.json_reply(404, {"error": "モーションが見つかりません"})
+                return
+            if len(matches) != 1:
+                self.json_reply(409, {"error": "モーション名が重複しています。固有の ID を指定してください"})
+                return
+            command = {"type": "motion", "id": motion_id(matches[0])}
+        else:
+            self.json_reply(400, {"error": "motion または stop: true を指定してください"})
+            return
+        with clients_lock:
+            if not controllers:
+                self.json_reply(503, {"error": "操作ページが開いていません"})
+                return
+            sent = False
+            for q in controllers:
+                try:
+                    q.put_nowait(json.dumps(command, ensure_ascii=False, separators=(",", ":")))
+                    sent = True
+                except queue.Full:
+                    pass
+        if not sent:
+            self.json_reply(503, {"error": "操作ページが応答していません"})
+            return
         self.send_response(204)
         self.end_headers()
 
@@ -220,10 +377,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(reply)
 
-    def stream_events(self):
+    def stream_events(self, subscribers):
         q = queue.Queue(maxsize=64)
         with clients_lock:
-            clients.add(q)
+            subscribers.add(q)
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -242,13 +399,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             pass  # the page was closed
         finally:
             with clients_lock:
-                clients.discard(q)
+                subscribers.discard(q)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    live_token()
     try:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     except OSError as e:

@@ -10,6 +10,10 @@ tmp-verify/
 # セットアップ時に生成されるモデル設定(tools/setup_model.py)
 model.config.json
 
+# Persistent token for local motion control
+.live-token
+.live-token-*
+
 # モデルごとのモーション定義はmodels/と同じ「作業成果物」扱い(同梱サンプルのみ追跡)
 # 残したい定義は git add -f motion-defs/<モデル名>.py で明示的に追跡する
 motion-defs/*

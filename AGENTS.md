@@ -196,6 +196,30 @@ values are ignored. Storage errors must not prevent interaction. In OBS, use the
 Browser source's "Interact" window. Keep streaming placement separate from the
 control page and do not include it in relay messages.
 
+## Motion shortcuts and external commands
+
+`web/hotkeys.js` handles Action keys only on index.html. Defaults are 1–9 in
+display order (one-shots, loops, recordings), 0 to stop, and Escape always stops
+outside text input/assignment mode. Repeating the playing motion keeps it;
+button clicks still restart it. Bindings use motion file stems, not indices,
+and are saved per resolved model3 URL. Edited settings leave new IDs unassigned.
+
+`tools/serve.py` accepts `POST /live/motion` with `X-Live-Token` or Bearer auth
+and JSON `{"motion":"<ID or exact Name>"}` / `{"stop":true}`. IDs take precedence;
+ambiguous names return 409, unknown names 404, missing/invalid tokens 401, and
+no connected controller 503. A 204 means queued, not confirmed playback.
+`GET /live/commands` is a separate SSE stream for index.html; do not change
+the existing `/live/events` relay or stream.html message format.
+`GET /live/status` advertises `motionRemote: 1` and `controllers` (including
+diagnostic subscribers; disconnection detection may wait for a keepalive).
+`web/motion-remote.js` subscribes only when this capability is available.
+
+`GET /live/token` reads the token; same-origin JSON `POST /live/token` rotates
+it. Both token and motion endpoints require Host localhost/127.0.0.1 with the
+server's port. `.live-token` is persistent, git-ignored, and blocked from static
+serving: never commit or print it in reports. Restart the server and reload
+the control page after updating these endpoints.
+
 ## WebUI debug hooks (index.html)
 
 | Query | Effect |
