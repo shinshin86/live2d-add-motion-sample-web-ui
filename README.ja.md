@@ -190,6 +190,20 @@ URL でも初期配置を指定できます。例: `stream.html?bg=green&zoom=1.
 
 OBS など別のアプリが前面にあるときに切り替えるには、`python3 tools/serve.py` で起動し、操作ページを開いたままにします。**ショートカットキー → 外部アプリから切り替え** から URL・トークン・curl 例をコピーしてください。curl 例のモーションは選択欄で変更できます。「通常に戻す」用のコピーもあります。更新後に案内が出た場合は、サーバーを再起動して操作ページを再読み込みしてください。
 
+**ターミナルから試す:** サーバーを起動して http://localhost:8765 を開いたまま、リポジトリのフォルダで次を実行します。トークンは `$(cat .live-token)` で自動的に読み込みます。`hiyori_happy` は同梱サンプル(Hiyori)のモーションです。ほかのモデルでは、モーションボタンに小さく表示されている ID か、表示名に置き換えてください。`--port` を付けてサーバーを起動した場合は、`8765` をそのポート番号に変えてください。
+
+```sh
+# モーションを再生する
+curl -X POST http://localhost:8765/live/motion -H "X-Live-Token: $(cat .live-token)" -H "Content-Type: application/json" -d '{"motion":"hiyori_happy"}'
+
+# 通常に戻す
+curl -X POST http://localhost:8765/live/motion -H "X-Live-Token: $(cat .live-token)" -H "Content-Type: application/json" -d '{"stop":true}'
+```
+
+何も表示されずに終われば成功で、ページのアバターが動きます。「操作ページが開いていません」と出たら操作ページを開いてください。「トークンが一致しません」と出たら、リポジトリのフォルダで実行しているか確認してください。
+
+ほかのアプリから送るときのリクエストの形は次のとおりです。
+
 ```sh
 curl -X POST http://localhost:8765/live/motion \
   -H 'X-Live-Token: <token>' -H 'Content-Type: application/json' \
@@ -205,6 +219,8 @@ curl -X POST http://localhost:8765/live/motion \
 **Stream Deck:** バックグラウンドで Web リクエストを送るプラグインのアクションを使い、上記の POST・URL・JSON の Content-Type・トークンヘッダ・ボディを設定します。標準の Website アクションはタブを開くだけなので、この操作には使えません。
 
 **macOS ショートカット:** 「設定 → 詳細」でスクリプトの実行を許可し、「シェルスクリプトを実行」に curl コマンドを貼り付け、ショートカットの詳細からキーボードショートカットを割り当てます。前面のアプリによっては反応しない場合があります。アプリを問わず使いたい場合は、Raycast・Hammerspoon から同じコマンドを実行するか、Stream Deck を使ってください。
+
+ショートカット・Raycast・Hammerspoon はリポジトリのフォルダでコマンドを実行しないため、`$(cat .live-token)` ではトークンを読み込めません。設定画面の「モーションの curl 例をコピー」でコピーしたコマンドを貼り付けてください。トークンが直接書き込まれています。
 
 トークンは `.live-token`(git 管理外)に保存され、サーバーを再起動しても変わりません。「トークンを再生成」を押すと古いトークンは `401` になるので、外部アプリの設定も更新してください。サーバーは `127.0.0.1` だけで待ち受け、トークン・モーションのエンドポイントは Host が `localhost:<port>` または `127.0.0.1:<port>` のリクエストだけを受け付けます。操作ページは `/live/commands` で外部操作を受け取り、OBS 用の `/live/events` とは別に接続します。ページを閉じたことが接続数に反映されるまで、keepalive を待つ場合があります。
 

@@ -188,6 +188,20 @@ Bindings are saved in this browser for each model URL, using motion IDs. Once ed
 
 To switch while OBS or another app is in front, start `python3 tools/serve.py` and keep the control page open. Under **ショートカットキー → 外部アプリから切り替え**, copy the request URL, token, or a ready-to-use curl example. Choose a motion from the selector for its example; a separate button copies the stop command. If prompted, restart the server and reload the control page after updating.
 
+**Try it from a terminal:** with the server running and http://localhost:8765 open, run these from the repository folder. `$(cat .live-token)` reads the token for you. `hiyori_happy` is a motion of the bundled Hiyori sample; for another model, use the small ID shown under a motion button, or its display name. If you started the server with `--port`, change `8765` to that port.
+
+```sh
+# play a motion
+curl -X POST http://localhost:8765/live/motion -H "X-Live-Token: $(cat .live-token)" -H "Content-Type: application/json" -d '{"motion":"hiyori_happy"}'
+
+# return to idle
+curl -X POST http://localhost:8765/live/motion -H "X-Live-Token: $(cat .live-token)" -H "Content-Type: application/json" -d '{"stop":true}'
+```
+
+No output means success, and the avatar on the page moves. "操作ページが開いていません" means the control page is not open; "トークンが一致しません" means the token does not match (run the commands from the repository folder).
+
+For other apps, the request has this general form:
+
 ```sh
 curl -X POST http://localhost:8765/live/motion \
   -H 'X-Live-Token: <token>' -H 'Content-Type: application/json' \
@@ -203,6 +217,8 @@ curl -X POST http://localhost:8765/live/motion \
 **Stream Deck:** use a plugin action that sends a web request in the background. Set POST, the URL, JSON content type, token header, and body as above. The standard Website action only opens a browser tab and cannot send this command.
 
 **macOS Shortcuts:** enable "Allow Running Scripts" in Settings → Advanced, add "Run Shell Script" with the curl command, and assign a keyboard shortcut in the shortcut's details. It may not work with every foreground app. For use across apps, run the same command through Raycast or Hammerspoon, or use Stream Deck.
+
+Shortcuts, Raycast and Hammerspoon do not run commands in the repository folder, so `$(cat .live-token)` does not work there. Paste the command from "モーションの curl 例をコピー" in the settings instead; it contains the token itself.
 
 The token is stored in `.live-token` (git-ignored) and survives server restarts. "トークンを再生成" replaces it; update external-app settings afterward, since the old token returns `401`. The server listens only on `127.0.0.1`; the token and motion endpoints accept only `localhost:<port>` or `127.0.0.1:<port>` as the Host. External commands go to control pages through `/live/commands`; the existing `/live/events` stream for OBS is separate. Connection counts can take until a keepalive to notice closed pages.
 
