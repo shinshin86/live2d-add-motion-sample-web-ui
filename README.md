@@ -178,6 +178,34 @@ You can also set the initial placement in the URL: `stream.html?bg=green&zoom=1.
 
 `stream.html` shows only the avatar. Motions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only these parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
 
+## Shortcut keys and switching motions from other apps
+
+With the control page in front, keys **1–9** play the first nine Action motions in display order (one-shots, loops, then recordings). Pressing the same key while its motion is playing continues playback; after a one-shot finishes, the key plays it again. **0** or **Esc** stops any motion and returns to idle. Clicking a motion button still restarts it.
+
+Open **ショートカットキー** (shortcut keys) in the "モーション" tab to assign keys to any Action motion, including recordings and motions beyond the first nine. Click a row's key button, then press a key; Shift and Alt combinations and numpad keys are supported. Esc cancels assignment; Backspace or Delete clears it. Assigning a key already in use moves it from the previous row. Ctrl/Command combinations cannot be assigned. Keys are ignored while typing in a form field or holding Ctrl/Command, and holding a key does not repeat playback. Esc always returns to idle outside form fields and assignment mode.
+
+Bindings are saved in this browser for each model URL, using motion IDs. Once edited, they stay with the same motions when new motions are added; new entries remain unassigned. "初期の割り当てに戻す" restores the initial assignments. If browser storage is unavailable, bindings work for the current page but cannot be retained after a reload.
+
+To switch while OBS or another app is in front, start `python3 tools/serve.py` and keep the control page open. Under **ショートカットキー → 外部アプリから切り替え**, copy the request URL, token, or a ready-to-use curl example. Choose a motion from the selector for its example; a separate button copies the stop command. If prompted, restart the server and reload the control page after updating.
+
+```sh
+curl -X POST http://localhost:8765/live/motion \
+  -H 'X-Live-Token: <token>' -H 'Content-Type: application/json' \
+  -d '{"motion":"<motion-id>"}'
+
+curl -X POST http://localhost:8765/live/motion \
+  -H 'X-Live-Token: <token>' -H 'Content-Type: application/json' \
+  -d '{"stop":true}'
+```
+
+`Authorization: Bearer <token>` can replace `X-Live-Token`. A motion ID is its file name without `.motion3.json`; the API also accepts an exact display name. IDs take precedence, and duplicate display names return `409` (use an ID instead). Re-sending the currently playing motion keeps it running. Success returns `204` after queuing the command; it does not acknowledge playback. Missing/incorrect tokens return `401`, unknown motions `404`, and no connected control page `503`. If a newly saved motion has not loaded in the control page yet, reload that page. Requests resolve against the model in `model.config.json`.
+
+**Stream Deck:** use a plugin action that sends a web request in the background. Set POST, the URL, JSON content type, token header, and body as above. The standard Website action only opens a browser tab and cannot send this command.
+
+**macOS Shortcuts:** enable "Allow Running Scripts" in Settings → Advanced, add "Run Shell Script" with the curl command, and assign a keyboard shortcut in the shortcut's details. It may not work with every foreground app. For use across apps, run the same command through Raycast or Hammerspoon, or use Stream Deck.
+
+The token is stored in `.live-token` (git-ignored) and survives server restarts. "トークンを再生成" replaces it; update external-app settings afterward, since the old token returns `401`. The server listens only on `127.0.0.1`; the token and motion endpoints accept only `localhost:<port>` or `127.0.0.1:<port>` as the Host. External commands go to control pages through `/live/commands`; the existing `/live/events` stream for OBS is separate. Connection counts can take until a keepalive to notice closed pages.
+
 ## Repository layout
 
 ```
