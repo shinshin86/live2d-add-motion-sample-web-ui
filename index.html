@@ -18,6 +18,10 @@
       display: flex; flex-direction: column; gap: 14px;
     }
     #panel h1 { font-size: 15px; }
+    #modelSwitch { display: grid; gap: 6px; padding: 10px; font-size: 12px;
+      background: #262838; border: 1px solid #3a3d52; border-radius: 10px; }
+    #modelSelect { width: 100%; min-width: 0; padding: 7px; font: inherit;
+      color: #e8e8ee; background: #1f2130; border: 1px solid #474b66; border-radius: 5px; }
     /* Tabs: motions / camera */
     #tabs {
       display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px;
@@ -210,6 +214,9 @@
       <h1>Live2D モーション再生</h1>
       <p class="sub">ボタンでモーションを手動再生できます</p>
     </div>
+    <label id="modelSwitch" for="modelSelect" hidden>モデル
+      <select id="modelSelect" aria-label="モデル"></select>
+    </label>
     <div id="tabs" role="tablist">
       <button role="tab" id="tab-motion" data-tab="motion" aria-selected="true" aria-controls="tabpanel-motion">モーション</button>
       <button role="tab" id="tab-camera" data-tab="camera" aria-selected="false" aria-controls="tabpanel-camera">カメラ</button>
@@ -356,6 +363,7 @@
     import { createMotionPlayer } from "./web/motion-player.js";
     import { attachHotkeys } from "./web/hotkeys.js";
     import { attachMotionRemote } from "./web/motion-remote.js";
+    import { attachModelSwitch } from "./web/model-switch.js";
     import { relayAvailable, sendRelay, relaySendStatus } from "./web/relay.js";
     import { FacePose } from "./web/tracking.js";
     import { FaceRecorder, MAX_SECONDS, recordingId, recordingTimestamp, recordingCaption, saveRecording } from "./web/recorder.js?v=3";
@@ -759,6 +767,12 @@
       };
       let savingRecording = false;
       let pendingRecording = null;
+      const modelChanged = attachModelSwitch(relayOn, MODEL_JSON, () => {
+        if (recorder.recording) return "録画中はモデルを切り替えられません。録画を停止して保存または破棄してください";
+        if (savingRecording) return "録画の保存が終わるまでモデルを切り替えられません";
+        if (pendingRecording) return "未保存の録画があります。保存または破棄してからモデルを切り替えてください";
+        return null;
+      }, (text) => { actionNotice = true; status.textContent = text; });
       function stopRecording() {
         const now = new Date();
         const rec = recorder.stop({ id: recordingId(now), label: "", loop: false, recordedAt: recordingTimestamp(now) });
@@ -1024,7 +1038,7 @@
       }
       attachHotkeys(MODEL_JSON, actions, requestAction);
       void attachMotionRemote(relayOn, actions, requestAction,
-        () => actions.find((action) => playingKey === `${NEW_GROUP}:${action.index}`)?.id || null);
+        () => actions.find((action) => playingKey === `${NEW_GROUP}:${action.index}`)?.id || null, modelChanged);
 
       // Pre-existing motions: one collapsible section per group (closed by default)
       const container = document.getElementById("buttons");

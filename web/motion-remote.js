@@ -4,8 +4,9 @@
 /** Connect external commands only after the model and its Action list are ready.
  * @param {boolean} relayOn @param {Action[]} actions
  * @param {(id: string | null) => void} run @param {() => string | null} playingId
+ * @param {() => void} modelChanged
  */
-export async function attachMotionRemote(relayOn, actions, run, playingId) {
+export async function attachMotionRemote(relayOn, actions, run, playingId, modelChanged) {
   const note = /** @type {HTMLElement} */ (document.getElementById("remoteNote"));
   const fields = /** @type {HTMLFieldSetElement} */ (document.getElementById("remoteFields"));
   if (!relayOn) { note.textContent = "tools/serve.py で開くと使えます"; return; }
@@ -46,6 +47,7 @@ export async function attachMotionRemote(relayOn, actions, run, playingId) {
         const message = JSON.parse(event.data);
         if (message.type === "stop") run(null);
         else if (message.type === "motion" && typeof message.id === "string") run(message.id);
+        else if (message.type === "model" && typeof message.name === "string" && /^[\w.-]{1,64}$/.test(message.name)) modelChanged();
       } catch { /* Ignore malformed commands. */ }
     };
     window.addEventListener("pagehide", () => events.close(), { once: true });

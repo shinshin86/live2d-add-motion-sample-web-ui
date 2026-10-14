@@ -144,6 +144,25 @@ motions use them. Hiyori examples:
 For a new model, rediscover this kind of quirk from how its existing motion
 curves use the parameters.
 
+## Switching installed models
+
+`GET /live/models` lists `models/*/*.model3.json` and the current model name
+(`null` if the config is missing or invalid). Same-origin JSON
+`POST /live/model` with `{"name":"<installed name>"}` atomically updates
+`model.config.json` under `recordings_lock`; it requires a localhost/127.0.0.1
+Host and returns 404 for unknown names. It notifies both `/live/events` and
+`/live/commands` with `{"type":"model","name":"..."}`. This type is not
+accepted by `/live/send`. `GET /live/status` advertises `modelSwitch: 1`.
+
+The control panel shows a selector when at least two models are installed.
+Local switching is blocked during recording, saving, or while a recording
+is unsaved. Control pages reload without their `model` query on a model
+notification; streaming pages reload only without an explicit `?model=`.
+Restart the server and reload pages after updating this feature.
+Never use `setup_model.py` to switch installed models: it replaces the working
+copy and removes generated motions. Change the config through `/live/model`
+instead; generation, validation, and recordings then use the selected model.
+
 ## Saving camera recordings
 
 The save form shows only the title input (Japanese allowed, up to 40 characters,

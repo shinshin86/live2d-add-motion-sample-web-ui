@@ -70,6 +70,14 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - The panel has two tabs: "モーション" (motions: everything above) and "カメラ" (camera: face tracking, recording and the streaming mode for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)). The camera keeps running when you switch tabs, so you can play emotion motions while it drives the face; a red dot on the tab shows that it is on
 - Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&tab=camera` (open the camera tab), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop, `&recordname=<name>` the motion name), `?uitest=1` (automated drag/zoom test)
 
+### Switching models
+
+Set up multiple models with `python3 tools/setup_model.py <model zip or folder>` and start `python3 tools/serve.py`. When two or more models are installed, the "モデル" selector appears at the top of the control panel. It is not shown on a plain static server. Save or discard any camera recording before switching.
+
+Selecting a model updates `model.config.json` and reloads the control and streaming pages. `gen_motions.py`, `validate_motions.py`, and camera recordings also use the selected model. To keep a streaming page on a particular model, specify its path, for example `stream.html?model=models/hiyori_pro_t11/hiyori_pro_t11.model3.json`.
+
+Use the selector to switch between installed models. Running `setup_model.py` again for an existing model replaces its working copy and removes generated motions; run `gen_motions.py` to regenerate them afterward.
+
 ## Adding your own motions
 
 If you use an AI agent, just reuse the prompt from the quick start (change the motion name). To do it manually:

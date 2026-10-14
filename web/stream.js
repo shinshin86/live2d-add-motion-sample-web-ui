@@ -57,6 +57,8 @@ async function main() {
       void player.play(message.group, message.index);
     } else if (message.type === "stop") {
       player.stop();
+    } else if (message.type === "model" && !params.has("model")) {
+      location.reload();
     }
   });
 
