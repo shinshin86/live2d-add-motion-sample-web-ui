@@ -5,6 +5,8 @@ live messages from the control page (index.html) to the streaming page
 
 Endpoints besides the static files:
   GET  /live/status        relay capabilities, stream clients, and controllers
+  GET  /live/models        installed models and the current model name
+  POST /live/model         select an installed model (same-origin JSON)
   POST /live/send          one JSON message from the control page
   GET  /live/events        Server-Sent Events stream of those messages
   POST /live/motion        authenticated motion ID/name or stop from external apps
@@ -27,6 +29,7 @@ External motion commands require a token persisted in the git-ignored .live-toke
 Usage: python3 tools/serve.py [--port 8765]
 """
 import argparse
+import glob
 import hmac
 import http.server
 import json
@@ -105,6 +108,28 @@ def current_model_stem():
     """The model3.json stem from model.config.json (recordings go only there)."""
     with open(os.path.join(ROOT, "model.config.json")) as fh:
         return os.path.basename(json.load(fh)["model3"]).replace(".model3.json", "")
+
+
+def installed_models():
+    """Only the single directory level created by setup_model.py."""
+    paths = sorted(glob.glob(os.path.join(ROOT, "models", "*", "*.model3.json")))
+    return sorted([
+        {"name": os.path.basename(path).removesuffix(".model3.json"),
+         "model3": os.path.relpath(path, ROOT).replace(os.sep, "/")}
+        for path in paths if os.path.isfile(path)
+    ], key=lambda model: model["name"])
+
+
+def configured_model():
+    """A missing or malformed config has no current model."""
+    try:
+        with open(os.path.join(ROOT, "model.config.json"), encoding="utf-8") as fh:
+            path = json.load(fh)["model3"]
+        if isinstance(path, str) and path.endswith(".model3.json"):
+            return os.path.basename(path).removesuffix(".model3.json") or None
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
 
 
 def valid_recording(rec):
@@ -195,7 +220,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 connected = len(clients)
                 controlling = len(controllers)
             self.json_reply(200, {"relay": True, "recordingsVersion": 2, "clients": connected,
-                                  "motionRemote": 1, "controllers": controlling})
+                                  "motionRemote": 1, "controllers": controlling, "modelSwitch": 1})
+        elif url.path == "/live/models":
+            self.json_reply(200, {"current": configured_model(), "models": installed_models()})
         elif url.path == "/__verify_hold":
             time.sleep(float(urllib.parse.parse_qs(url.query).get("s", ["0"])[0]))
             self.send_response(204)
@@ -213,7 +240,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
-        if path in {"/live/token", "/live/motion"} and not self.local_host():
+        if path in {"/live/token", "/live/motion", "/live/model"} and not self.local_host():
             self.json_reply(403, {"error": "localhost または 127.0.0.1 を使用してください"})
             return
         if path == "/live/motion":
@@ -228,12 +255,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self.same_origin_json():
             self.send_error(403)
             return
-        if path in {"/live/token", "/live/motion"}:
+        if path in {"/live/token", "/live/motion", "/live/model"}:
             message = self.read_command()
             if message is None:
                 return
             if path == "/live/token":
                 self.json_reply(200, {"token": live_token(regenerate=True)})
+            elif path == "/live/model":
+                self.switch_model(message)
             else:
                 self.send_motion_command(message)
             return
@@ -316,6 +345,40 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         self.send_response(204)
         self.end_headers()
+
+    def switch_model(self, message):
+        with recordings_lock:
+            model = next((entry for entry in installed_models() if entry["name"] == message.get("name")), None)
+            if model is None:
+                self.json_reply(404, {"error": "モデルが見つかりません"})
+                return
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=ROOT,
+                                                 prefix=".model.config-", delete=False) as fh:
+                    temporary = fh.name
+                    json.dump(model, fh, ensure_ascii=False, indent=2)
+                    fh.write("\n")
+                os.replace(temporary, os.path.join(ROOT, "model.config.json"))
+            except OSError:
+                self.json_reply(500, {"error": "モデル設定を保存できません"})
+                return
+            finally:
+                if temporary and os.path.exists(temporary):
+                    os.unlink(temporary)
+            payload = json.dumps({"type": "model", "name": model["name"]}, separators=(",", ":"))
+            with clients_lock:
+                for q in clients | controllers:
+                    try:
+                        q.put_nowait(payload)
+                    except queue.Full:
+                        # A model change must reach even a client with queued poses.
+                        try:
+                            q.get_nowait()
+                        except queue.Empty:
+                            pass
+                        q.put_nowait(payload)
+            self.json_reply(200, {"name": model["name"]})
 
     def save_recording(self):
         with recordings_lock:

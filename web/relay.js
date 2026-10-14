@@ -7,13 +7,15 @@
 //   { type: "pose", face: FaceParams | null, weight: 0..1, mouth: 0..1 | null }
 //   { type: "motion", group: string, index: number }
 //   { type: "stop" }
+//   { type: "model", name: string } (server notification only)
 
 import { FACE_NEUTRAL } from "./tracking.js";
 
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 /**
  * @typedef {{ type: "pose", face: FaceParams | null, weight: number, mouth: number | null }} PoseMessage
- * @typedef {PoseMessage | { type: "motion", group: string, index: number } | { type: "stop" }} RelayMessage
+ * @typedef {PoseMessage | { type: "motion", group: string, index: number } | { type: "stop" }} ControlMessage
+ * @typedef {ControlMessage | { type: "model", name: string }} RelayMessage
  */
 
 /** True when the page is served by tools/serve.py (python3 -m http.server has no relay). */
@@ -28,14 +30,14 @@ export async function relayAvailable() {
 
 let sending = false;
 let lastError = "";
-/** @type {RelayMessage[]} */
+/** @type {ControlMessage[]} */
 const commands = [];
 
 /** Last send result for the control page's connection indicator. */
 export function relaySendStatus() { return { sending, error: lastError }; }
 
 /** Send one request at a time. Busy poses are dropped; discrete commands retain order.
- * @param {RelayMessage} message */
+ * @param {ControlMessage} message */
 export function sendRelay(message) {
   if (sending) {
     if (message.type !== "pose") { commands.push(message); return true; }
@@ -73,6 +75,10 @@ export function relayMessage(input) {
   if (!input || typeof input !== "object") return null;
   const data = /** @type {Record<string, unknown>} */ (input);
   if (data.type === "stop") return { type: "stop" };
+  if (data.type === "model") {
+    if (typeof data.name !== "string" || !/^[\w.-]{1,64}$/.test(data.name)) return null;
+    return { type: "model", name: data.name };
+  }
   if (data.type === "motion") {
     const index = finite(data.index, 0, 999);
     if (typeof data.group !== "string" || !/^[\w-]{0,64}$/.test(data.group) || index === null) return null;
