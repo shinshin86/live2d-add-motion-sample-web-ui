@@ -14,8 +14,9 @@ import { faceToLive2D } from "./live2d-face.js";
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 /**
  * @typedef {{ mode: string, values: number[] }} RecordedParam
+ * @typedef {{ trimStart?: number, trimEnd?: number, speed?: number, smooth?: number, loop?: boolean }} RecordingEdit
  * @typedef {{ version: 1, id: string, label: string, loop: boolean, recordedAt?: string, fps: number, duration: number,
- *   params: Record<string, RecordedParam> }} Recording
+ *   params: Record<string, RecordedParam>, edit?: RecordingEdit }} Recording
  */
 
 export const MAX_SECONDS = 60;

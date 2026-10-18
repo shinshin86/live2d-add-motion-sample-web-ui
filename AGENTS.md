@@ -231,6 +231,39 @@ and the server prints details. Fix the cause and run generation/validation befor
 reloading. A plain static server keeps the download fallback and requires these
 commands manually.
 
+## Editing saved recordings
+
+Version 1 recording sources may include optional
+`edit: {trimStart, trimEnd, speed, smooth, loop}`. Trim bounds are positions in
+the original source in seconds (end is not a length to remove); defaults keep
+the full duration. Speed is 0.25–4, smooth is 0–1 and loop defaults to the source
+flag. The edited duration must be at least one 30 fps frame. `tools/recording_edits.py`
+trims, blends samples with a centered 11-frame moving average, then resamples
+speed at 30 fps before the generator's existing easing/seam/key-reduction steps.
+Raw params and source metadata are never changed. Sources without edit retain
+the legacy output exactly. Both preview and generation use this processing.
+
+`GET /live/status` adds `recordingEdit: 1` (recordingsVersion stays 2).
+`POST /recordings/preview` and `/recordings/edit` accept `{model, id, edit}`;
+`POST /recordings/delete` accepts `{model, id}`. All recording POSTs require the
+server's localhost/127.0.0.1 Host with port and same-origin JSON (external apps
+may omit Origin), and share recordings_lock with saves and model switching.
+Preview returns `{motion}` without writes. Edit atomically saves only the edit
+metadata, then generates/validates; failures retain the saved settings, like
+recording saves. Deletion temporarily hides source and generated output, restores
+both on failure, and regenerates/validates. Removing the generated output avoids
+mistaking an orphan recording for an original reference motion.
+
+Saved-motion entries have an edit button. The editor supports preview, stop,
+save/reload, reset to original settings, and an inline delete/cancel confirmation
+(never browser confirm()). Preview plays transient data only on index.html,
+pausing camera/lip-sync contributions there; the relay continues independently.
+It is not sent to OBS. Unsaved edits or an in-flight operation block local model
+switches; finish/close editing before recording again. Restart the server and
+force-reload pages after updates. `?editrecording=<ID>` opens the editor on load.
+Always test on a copy of an existing source, remove that copy afterward, and
+verify the user's original recordings are byte-for-byte unchanged.
+
 ## Streaming updates
 
 Face sampling, recording and lip-sync levels run on `web/background-clock.js`
@@ -294,6 +327,7 @@ the control page after updating these endpoints.
 | `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame); `&lipsync=mic` uses the microphone |
 | `&audio=<url>` | Lip-sync to an audio file (loudness of the playing audio) |
 | `&expression=<name>` | Apply an exp3 expression by file stem or exact display name |
+| `&editrecording=<ID>` | Open a saved recording's editor without changing its source |
 | `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh; also on stream.html) |
 | `&tab=motion\|camera` | Open a panel tab (the camera hooks open the camera tab unless `&tab=` says otherwise) |
 | `&camera=1` | Start the camera on load |

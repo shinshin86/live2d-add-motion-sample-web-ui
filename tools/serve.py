@@ -16,6 +16,9 @@ Endpoints besides the static files:
   POST /recordings         save a camera recording (web/recorder.js) as
                            motion-defs/recordings/<model>/<id>.json, then
                            generate and validate motions before replying
+  POST /recordings/preview  generate edited motion data without writing files
+  POST /recordings/edit     save edit metadata, regenerate and validate
+  POST /recordings/delete   delete a source + generated motion, with rollback
   GET  /__verify_hold?s=N  answers after N seconds (tools/verify_browser.sh)
 
 Only small JSON objects with a known "type" are relayed. Camera frames and
@@ -44,6 +47,9 @@ import tempfile
 import threading
 import time
 import urllib.parse
+
+from gen_motions import observed_reference, recording_motion
+from recording_edits import normalize_edit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESSAGE_TYPES = {"pose", "motion", "stop"}  # see web/relay.js
@@ -160,7 +166,41 @@ def valid_recording(rec):
             return False
         if not all(isinstance(v, (int, float)) and math.isfinite(v) and abs(v) <= 100 for v in values):
             return False
+    if "edit" in rec:
+        try:
+            normalize_edit(rec, rec["edit"])
+        except (ValueError, KeyError, TypeError, StopIteration):
+            return False
     return True
+
+
+def regenerate_recordings():
+    """Caller holds recordings_lock, including when rolling back a deletion."""
+    for script in ("gen_motions.py", "validate_motions.py"):
+        try:
+            result = subprocess.run([sys.executable, os.path.join(ROOT, "tools", script)],
+                                    cwd=ROOT, capture_output=True, text=True, timeout=120)
+            print(f"{script}: exit {result.returncode}\n{result.stdout}{result.stderr}", flush=True)
+            if result.returncode != 0:
+                return f"{script} が失敗しました。サーバーのターミナルで詳細を確認してください"
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"{script} failed: {exc}", flush=True)
+            return f"{script} を完了できませんでした。サーバーのターミナルで詳細を確認してください"
+    return None
+
+
+def atomic_recording(path, recording):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=os.path.dirname(path),
+                                         prefix=".recording-", suffix=".tmp", delete=False) as fh:
+            temporary = fh.name
+            json.dump(recording, fh, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            fh.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def broadcast(payload):
@@ -220,7 +260,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 connected = len(clients)
                 controlling = len(controllers)
             self.json_reply(200, {"relay": True, "recordingsVersion": 2, "clients": connected,
-                                  "motionRemote": 1, "controllers": controlling, "modelSwitch": 1})
+                                  "motionRemote": 1, "controllers": controlling, "modelSwitch": 1,
+                                  "recordingEdit": 1})
         elif url.path == "/live/models":
             self.json_reply(200, {"current": configured_model(), "models": installed_models()})
         elif url.path == "/__verify_hold":
@@ -236,11 +277,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
             return False
         origin = self.headers.get("Origin")
-        return origin is None or urllib.parse.urlparse(origin).netloc == self.headers.get("Host")
+        return origin is None or (urllib.parse.urlparse(origin).scheme == "http" and
+                                  urllib.parse.urlparse(origin).netloc == self.headers.get("Host"))
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
-        if path in {"/live/token", "/live/motion", "/live/model"} and not self.local_host():
+        recording_routes = {"/recordings", "/recordings/edit", "/recordings/preview", "/recordings/delete"}
+        if path in {"/live/token", "/live/motion", "/live/model"} | recording_routes and not self.local_host():
             self.json_reply(403, {"error": "localhost または 127.0.0.1 を使用してください"})
             return
         if path == "/live/motion":
@@ -268,6 +311,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if path == "/recordings":
             self.save_recording()
+            return
+        if path in recording_routes:
+            message = self.read_command()
+            if message is not None:
+                with recordings_lock:
+                    self.change_recording(path.rsplit("/", 1)[-1], message)
             return
         if path != "/live/send":
             self.send_error(404)
@@ -417,21 +466,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             fh.write("\n")
         path = os.path.relpath(target, ROOT)
         print(f"recording saved: {path}", flush=True)
-        error = None
-        for script in ("gen_motions.py", "validate_motions.py"):
-            try:
-                result = subprocess.run(
-                    [sys.executable, os.path.join(ROOT, "tools", script)],
-                    cwd=ROOT, capture_output=True, text=True, timeout=120,
-                )
-                print(f"{script}: exit {result.returncode}\n{result.stdout}{result.stderr}", flush=True)
-                if result.returncode != 0:
-                    error = f"{script} が失敗しました。録画は保存済みです。サーバーのターミナルで詳細を確認してください"
-                    break
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                print(f"{script} failed: {exc}", flush=True)
-                error = f"{script} を完了できませんでした。録画は保存済みです。サーバーのターミナルで詳細を確認してください"
-                break
+        error = regenerate_recordings()
+        if error:
+            error = "録画は保存済みです。" + error
         reply = json.dumps({"path": path, "saved": True, "ready": error is None,
                             "error": error}, ensure_ascii=False).encode()
         self.send_response(500 if error else 201)
@@ -439,6 +476,99 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()
         self.wfile.write(reply)
+
+    def change_recording(self, operation, message):
+        """Operate only on a source recording in the currently selected model."""
+        try:
+            stem = current_model_stem()
+            if message.get("model") != stem:
+                self.json_reply(409, {"error": "モデルが切り替わっています。ページを再読み込みしてください"})
+                return
+            name = message.get("id")
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,47}", name):
+                self.json_reply(400, {"error": "録画IDが不正です"})
+                return
+            folder = os.path.join(ROOT, "motion-defs", "recordings", stem)
+            target = os.path.join(folder, name + ".json")
+            recording_root = os.path.realpath(os.path.join(ROOT, "motion-defs", "recordings"))
+            if os.path.islink(target) or os.path.commonpath([recording_root, os.path.realpath(target)]) != recording_root:
+                self.json_reply(403, {"error": "録画フォルダ外のファイルは操作できません"})
+                return
+            with open(target, encoding="utf-8") as fh:
+                rec = json.load(fh)
+            if not valid_recording(rec):
+                raise ValueError("元の録画データの形式が正しくありません")
+            if operation == "delete":
+                self.delete_recording(target, name)
+                return
+            if "edit" not in message:
+                raise ValueError("編集設定を指定してください")
+            edit = normalize_edit(rec, message["edit"])
+            edited = {**rec, "edit": edit}
+            if operation == "preview":
+                with open(os.path.join(ROOT, "model.config.json")) as fh:
+                    runtime = os.path.join(ROOT, os.path.dirname(json.load(fh)["model3"]))
+                model3_path = glob.glob(os.path.join(runtime, "*.model3.json"))[0]
+                with open(model3_path) as fh:
+                    model3 = json.load(fh)
+                cdi = glob.glob(os.path.join(runtime, "*.cdi3.json"))
+                available = {p["Id"] for p in json.load(open(cdi[0]))["Parameters"]} if cdi else None
+                base, ranges = observed_reference(runtime, model3)
+                lipsync = {pid for g in model3.get("Groups", []) if g.get("Name") == "LipSync" for pid in g.get("Ids", [])}
+                data = recording_motion(edited, base, ranges, available, lipsync)
+                self.json_reply(200, {"motion": data})
+                return
+            atomic_recording(target, edited)
+            error = regenerate_recordings()
+            self.json_reply(500 if error else 200, {"saved": True, "ready": error is None,
+                            "error": "編集設定は保存済みです。" + error if error else None})
+        except FileNotFoundError:
+            self.json_reply(404, {"error": "録画が見つかりません"})
+        except (ValueError, KeyError, TypeError, StopIteration, IndexError) as exc:
+            self.json_reply(400, {"error": str(exc)})
+        except OSError as exc:
+            print(f"recording operation failed: {exc}", flush=True)
+            self.json_reply(500, {"error": "録画を更新できません。サーバーのターミナルで詳細を確認してください"})
+
+    def delete_recording(self, target, name):
+        """Hide source/output during regeneration; restore both if it fails."""
+        with open(os.path.join(ROOT, "model.config.json")) as fh:
+            runtime = os.path.join(ROOT, os.path.dirname(json.load(fh)["model3"]))
+        generated = os.path.join(runtime, "motion", "recorded", name + ".motion3.json")
+        backups = []
+        deleted = False
+        try:
+            for path in (target, generated):
+                if not os.path.exists(path):
+                    continue
+                if os.path.islink(path):
+                    raise ValueError("リンクされた録画ファイルは削除できません")
+                with tempfile.NamedTemporaryFile(dir=os.path.dirname(path), prefix=".recording-delete-",
+                                                 suffix=".bak", delete=False) as fh:
+                    temporary = fh.name
+                try:
+                    os.replace(path, temporary)
+                except OSError:
+                    os.unlink(temporary)
+                    raise
+                backups.append((path, temporary))
+            error = regenerate_recordings()
+            if error:
+                for path, temporary in backups:
+                    os.replace(temporary, path)
+                regenerate_recordings()
+                self.json_reply(500, {"deleted": False, "ready": False, "error": "削除を取り消しました。" + error})
+                return
+            deleted = True
+        finally:
+            # An unexpected I/O error must not lose the only source copy.
+            for path, temporary in backups:
+                if os.path.exists(temporary):
+                    if deleted:
+                        os.unlink(temporary)
+                    else:
+                        os.replace(temporary, path)
+        self.json_reply(200, {"deleted": True, "ready": True})
 
     def stream_events(self, subscribers):
         q = queue.Queue(maxsize=64)

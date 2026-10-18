@@ -52,6 +52,8 @@ import os
 import re
 import sys
 
+from recording_edits import apply_edit
+
 FPS = 30.0
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GROUP = "Action"  # replace only this group; never touch the existing ones
@@ -302,6 +304,7 @@ def reduce_keys(times, values, tolerance):
 
 def recording_motion(rec, base, ranges, available, lipsync_ids, ease=0.4):
     """A camera recording (web/recorder.js) -> motion3 data."""
+    rec = apply_edit(rec)
     fps = rec["fps"]
     loop = rec["loop"]
     curves = []
@@ -333,6 +336,8 @@ def recording_motion(rec, base, ranges, available, lipsync_ids, ease=0.4):
         times = [i / fps for i in range(n)]
         keys = reduce_keys(times, values, max(0.002, (hi - lo) * 0.01))
         curves.append(curve(pid, keys, loop=loop, smooth=not loop))
+    if not curves:
+        raise ValueError("このモデルで使える録画パラメータがありません")
     return motion((n - 1) / fps, curves, loop=loop)
 
 
@@ -349,7 +354,10 @@ def load_recordings(stem, runtime, model3, available):
     for f in files:
         rec = json.load(open(f))
         name = os.path.basename(f)[:-len(".json")]
-        motions[name] = recording_motion(rec, base, ranges, available, lipsync_ids)
+        try:
+            motions[name] = recording_motion(rec, base, ranges, available, lipsync_ids)
+        except ValueError as exc:
+            sys.exit(f"ERROR: recording {name}: {exc}")
         manifest.append((name, rec.get("label") or name, 0.3, 0.5))
     print(f"recordings: {folder} ({len(files)} recordings)")
     return motions, manifest

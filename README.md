@@ -210,6 +210,16 @@ Reload the page to display the saved motion.
 
 The recording stores what your face adds to each parameter, so the idle or emotion motion that happened to be playing is not baked in. The generator puts it back on the model's base pose, keeps it within the observed value ranges, reduces it to keyframes, and eases in from and out to the base pose (a loop instead blends its end into its start and leaves out the lip-sync parameters). The result passes `validate_motions.py` as is.
 
+### Editing a saved recording
+
+In "保存したモーション", press the recording's "編集" button. Choose the start and end positions in the original recording (seconds), speed (0.25–4×), smoothing (0–1), and whether to loop. "試再生" previews these settings without saving; it runs only on the control page and temporarily leaves out live camera and lip-sync input. "停止" stops the preview. "編集を保存" saves and regenerates the motion; press "再読み込みして表示" to use it from the list. Close the editor to discard unsaved settings. "元の設定" restores the full source duration, normal speed, no smoothing and the original loop choice; save to apply that reset.
+
+Edits are stored in an optional `edit` object in the recording JSON; the original `params`, duration, date and loop flag are preserved. For example, `{"trimStart":1,"trimEnd":6,"speed":1.5,"smooth":0.6,"loop":false}` keeps source seconds 1–6 and plays them in about 3.33 seconds. `trimEnd` is the retained end position, not a length to remove. The generator trims, smooths with a centered 11-frame moving average blended by `smooth`, then resamples the speed at 30 fps before the existing base-pose easing or loop seam treatment. Recordings without `edit` generate exactly as before.
+
+"録画を削除" opens a confirmation inside the editor. "キャンセル" leaves the recording intact; "削除する" removes the source recording and its generated motion. If regeneration or validation fails, deletion is rolled back. After a successful deletion, reload to update the list.
+
+Editing needs `tools/serve.py`; restart it and force-reload after updating. `GET /live/status` advertises `recordingEdit: 1` while retaining `recordingsVersion: 2`. Same-origin JSON POSTs to `/recordings/preview`, `/recordings/edit`, and `/recordings/delete` use `{model, id, edit}` (`edit` is omitted for deletion). They require a localhost/127.0.0.1 Host with the server's port and serialize with recording saves and model switches. Preview returns a motion without writing files. Edit saves only the settings, then generates and validates; if either fails, the settings remain saved and the page reports the error. No editing endpoint changes the raw parameter samples.
+
 ### Streaming mode (OBS)
 
 1. Start the server with `python3 tools/serve.py`. The streaming mode needs it; `python3 -m http.server` cannot relay
@@ -281,6 +291,7 @@ tools/
   setup_model.py            Place a model (zip/folder → models/) + generate model.config.json
   analyze_model.py          Analyze parameters, value ranges, physics outputs
   gen_motions.py            Generation engine (model-agnostic); builds + registers motions from definitions (idempotent)
+  recording_edits.py        Non-destructive trim, smoothing and speed processing for recordings
   validate_motions.py       Independently implemented validator
   verify_browser.sh         Real-rendering verification with headless Chrome (--loop: seam check)
                             (assumes the macOS Chrome path; override with env CHROME)
