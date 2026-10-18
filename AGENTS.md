@@ -82,6 +82,11 @@ engine; do not edit it when switching models.
 
 ## Design rules (model-independent)
 
+An optional `motion-defs/<model>.local.py` uses the same `define(curve, motion)`
+format and appends local motions after the main definitions. Duplicate names
+fail. Keep local definitions and their source data under the git-ignored
+`motion-defs/` directory, never in the generated `models/` working copy alone.
+
 - Never edit rigs/meshes in Cubism Editor. Use only the model's existing
   parameters.
 - Keep values within the ranges observed in the existing motions

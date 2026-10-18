@@ -62,6 +62,11 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 
 ## Using the WebUI
 
+For local additions to a bundled definition, create `motion-defs/<model-name>.local.py`
+with the same `define(curve, motion)` format. Its motions are appended after the
+main definitions; duplicate names fail. This file and any local motion sources
+under `motion-defs/` stay git-ignored.
+
 - Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
 - **Drag** the avatar to move it, **mouse wheel / pinch** to zoom around the cursor, and "Reset view" to restore the initial placement
 - The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)

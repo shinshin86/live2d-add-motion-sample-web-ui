@@ -165,7 +165,7 @@ def motion(duration, curves, loop=False):
     }
 
 
-def load_definitions(stem):
+def load_definition_file(stem):
     def_path = os.path.join(DEFS_DIR, f"{stem}.py")
     if not os.path.exists(def_path):
         sys.exit(f"ERROR: no motion definitions for this model: {def_path}\n"
@@ -177,6 +177,20 @@ def load_definitions(stem):
     motions, manifest = mod.define(curve, motion)
     if set(n for n, *_ in manifest) != set(motions):
         sys.exit(f"ERROR: MANIFEST and MOTIONS keys do not match in {def_path}.")
+    return motions, manifest, def_path
+
+
+def load_definitions(stem):
+    motions, manifest, def_path = load_definition_file(stem)
+    local_path = os.path.join(DEFS_DIR, f"{stem}.local.py")
+    if os.path.exists(local_path):
+        local_motions, local_manifest, _ = load_definition_file(f"{stem}.local")
+        clash = sorted(set(motions) & set(local_motions))
+        if clash:
+            sys.exit(f"ERROR: main and local definitions share motion names: {', '.join(clash)}")
+        motions = {**motions, **local_motions}
+        manifest = list(manifest) + list(local_manifest)
+        print(f"local definitions: {local_path} ({len(local_motions)} motions)")
     return motions, manifest, def_path
 
 
