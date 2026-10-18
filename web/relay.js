@@ -1,12 +1,13 @@
 // @ts-check
 // Relay between the control page (index.html) and the streaming page
-// (stream.html) through tools/serve.py. Only parameters and motion commands are
+// (stream.html) through tools/serve.py. Only parameters and playback commands are
 // sent; camera frames and microphone audio never leave the control page.
 //
 // Messages:
 //   { type: "pose", face: FaceParams | null, weight: 0..1, mouth: 0..1 | null }
 //   { type: "motion", group: string, index: number }
 //   { type: "stop" }
+//   { type: "expression", name: string | null } (file stem; null clears)
 //   { type: "model", name: string } (server notification only)
 
 import { FACE_NEUTRAL } from "./tracking.js";
@@ -14,7 +15,8 @@ import { FACE_NEUTRAL } from "./tracking.js";
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 /**
  * @typedef {{ type: "pose", face: FaceParams | null, weight: number, mouth: number | null }} PoseMessage
- * @typedef {PoseMessage | { type: "motion", group: string, index: number } | { type: "stop" }} ControlMessage
+ * @typedef {{ type: "expression", name: string | null }} ExpressionMessage
+ * @typedef {PoseMessage | ExpressionMessage | { type: "motion", group: string, index: number } | { type: "stop" }} ControlMessage
  * @typedef {ControlMessage | { type: "model", name: string }} RelayMessage
  */
 
@@ -75,6 +77,11 @@ export function relayMessage(input) {
   if (!input || typeof input !== "object") return null;
   const data = /** @type {Record<string, unknown>} */ (input);
   if (data.type === "stop") return { type: "stop" };
+  if (data.type === "expression") {
+    if (Object.keys(data).some(key => key !== "type" && key !== "name") ||
+        (data.name !== null && (typeof data.name !== "string" || !/^[A-Za-z0-9_-]{1,240}$/.test(data.name)))) return null;
+    return { type: "expression", name: data.name };
+  }
   if (data.type === "model") {
     if (typeof data.name !== "string" || !/^[\w.-]{1,64}$/.test(data.name)) return null;
     return { type: "model", name: data.name };

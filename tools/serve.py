@@ -23,7 +23,7 @@ Endpoints besides the static files:
 
 Only small JSON objects with a known "type" are relayed. Camera frames and
 microphone audio never reach this server: the control page sends only the
-resulting parameters (head angles, mouth openness, ...) and motion commands.
+resulting parameters (head angles, mouth openness, ...) and playback commands.
 
 The server binds to 127.0.0.1, so other machines cannot reach it. POSTs require
 JSON and reject cross-origin browser requests; external apps may omit Origin.
@@ -52,7 +52,7 @@ from gen_motions import observed_reference, recording_motion
 from recording_edits import normalize_edit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MESSAGE_TYPES = {"pose", "motion", "stop"}  # see web/relay.js
+MESSAGE_TYPES = {"pose", "motion", "stop", "expression"}  # see web/relay.js
 MAX_MESSAGE_BYTES = 4096
 MAX_RECORDING_BYTES = 4 * 1024 * 1024
 RECORDING_MODES = {"add", "multiply", "replace"}
@@ -61,6 +61,7 @@ KEEPALIVE_SECONDS = 15
 clients = set()  # one queue per connected /live/events stream
 controllers = set()  # separate queues for /live/commands
 clients_lock = threading.Lock()
+expression_state = None  # latest serialized expression message, guarded by clients_lock
 recordings_lock = threading.Lock()  # serialize writes and model regeneration
 token_lock = threading.Lock()
 
@@ -203,13 +204,23 @@ def atomic_recording(path, recording):
             os.unlink(temporary)
 
 
-def broadcast(payload):
+def valid_expression_message(message):
+    """Only a registered-file stem or null; never a URL, path or expression data."""
+    return (set(message) == {"type", "name"} and message["type"] == "expression" and
+            (message["name"] is None or isinstance(message["name"], str) and
+             re.fullmatch(r"[A-Za-z0-9_-]{1,240}", message["name"]) is not None))
+
+
+def broadcast(message):
+    global expression_state
+    payload = json.dumps(message, separators=(",", ":"))
     with clients_lock:
+        if message["type"] == "expression":
+            expression_state = payload
         for q in clients:
-            try:
+            # Bound pose backlog while retaining every discrete command in FIFO order.
+            if message["type"] != "pose" or q.qsize() < 64:
                 q.put_nowait(payload)
-            except queue.Full:
-                pass  # a stalled client drops messages rather than blocking others
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -261,7 +272,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 controlling = len(controllers)
             self.json_reply(200, {"relay": True, "recordingsVersion": 2, "clients": connected,
                                   "motionRemote": 1, "controllers": controlling, "modelSwitch": 1,
-                                  "recordingEdit": 1})
+                                  "recordingEdit": 1, "expressionRelay": 1})
         elif url.path == "/live/models":
             self.json_reply(200, {"current": configured_model(), "models": installed_models()})
         elif url.path == "/__verify_hold":
@@ -321,7 +332,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path != "/live/send":
             self.send_error(404)
             return
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self.send_error(400)
+            return
         if not 0 < length <= MAX_MESSAGE_BYTES:
             self.send_error(413)
             return
@@ -330,10 +345,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except ValueError:
             self.send_error(400)
             return
-        if not isinstance(message, dict) or message.get("type") not in MESSAGE_TYPES:
+        if (not isinstance(message, dict) or not isinstance(message.get("type"), str) or
+                message["type"] not in MESSAGE_TYPES or
+                message["type"] == "expression" and not valid_expression_message(message)):
             self.send_error(400)
             return
-        broadcast(json.dumps(message, separators=(",", ":")))
+        broadcast(message)
         self.send_response(204)
         self.end_headers()
 
@@ -396,6 +413,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def switch_model(self, message):
+        global expression_state
         with recordings_lock:
             model = next((entry for entry in installed_models() if entry["name"] == message.get("name")), None)
             if model is None:
@@ -417,6 +435,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     os.unlink(temporary)
             payload = json.dumps({"type": "model", "name": model["name"]}, separators=(",", ":"))
             with clients_lock:
+                expression_state = json.dumps({"type": "expression", "name": None}, separators=(",", ":"))
                 for q in clients | controllers:
                     try:
                         q.put_nowait(payload)
@@ -571,9 +590,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.json_reply(200, {"deleted": True, "ready": True})
 
     def stream_events(self, subscribers):
-        q = queue.Queue(maxsize=64)
+        q = queue.Queue(maxsize=0 if subscribers is clients else 64)
         with clients_lock:
             subscribers.add(q)
+            # Snapshot and live delivery share the lock, so a newer selection cannot
+            # arrive before an older replay. External-command subscribers get no replay.
+            if subscribers is clients and expression_state is not None:
+                q.put_nowait(expression_state)
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")

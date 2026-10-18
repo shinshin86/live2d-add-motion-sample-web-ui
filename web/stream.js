@@ -7,6 +7,7 @@ import "./verify-hold.js";
 import { attachStreamView } from "./stream-view.js";
 import { attachFaceDriver } from "./live2d-face.js";
 import { createMotionPlayer } from "./motion-player.js";
+import { attachExpressions, expressionId } from "./expressions.js";
 import { receiveRelay } from "./relay.js";
 
 const PIXI = /** @type {any} */ (globalThis).PIXI;
@@ -45,20 +46,48 @@ async function main() {
 
   const player = createMotionPlayer(model);
   const face = attachFaceDriver(model);
+  const expressions = attachExpressions(model);
   /** @type {{ face: import("./tracking.js").FaceParams | null, weight: number, mouth: number | null, received: number }} */
   const pose = { face: null, weight: 0, mouth: null, received: -Infinity };
   let messages = 0;
+  let expressionStatus = "表情: なし";
+  let commandVersion = 0;
+  let commands = Promise.resolve();
 
   receiveRelay((message) => {
     messages++;
     if (message.type === "pose") {
       Object.assign(pose, message, { received: performance.now() });
-    } else if (message.type === "motion") {
-      void player.play(message.group, message.index);
-    } else if (message.type === "stop") {
-      player.stop();
-    } else if (message.type === "model" && !params.has("model")) {
-      location.reload();
+    } else if (message.type === "model") {
+      commandVersion++;
+      commands = Promise.resolve();
+      void expressions.select(-1);
+      expressionStatus = "表情: なし";
+      if (!params.has("model")) location.reload();
+    } else {
+      // Loading a motion/expression is asynchronous; preserve command arrival order.
+      const version = commandVersion;
+      commands = commands.then(async () => {
+        if (version !== commandVersion) return;
+        if (message.type === "motion") {
+          await player.play(message.group, message.index);
+        } else if (message.type === "stop") {
+          player.stop();
+        } else if (message.type === "expression") {
+          const matches = message.name === null ? [] : expressions.entries
+            .map((entry, i) => expressionId(entry) === message.name ? i : -1).filter(i => i >= 0);
+          if (message.name !== null && matches.length !== 1) {
+            expressionStatus = `表情を特定できません: ${message.name}`;
+            return;
+          }
+          const index = message.name === null ? -1 : matches[0];
+          if (await expressions.select(index) && version === commandVersion) {
+            expressionStatus = index < 0 ? "表情: なし" : `表情: ${expressions.entries[index].Name}`;
+          }
+        }
+      }).catch((error) => {
+        if (version === commandVersion) expressionStatus = `中継エラー: ${error.message}`;
+      });
     }
   });
 
@@ -72,7 +101,7 @@ async function main() {
     if (!live) pose.weight *= Math.exp(-dt / 0.2);
     face.set(pose.face, pose.weight < 0.005 ? 0 : pose.weight);
     if (!status.hidden) {
-      status.textContent = `relay: ${live ? "受信中" : "待機中"} messages=${messages} face=${pose.face ? "on" : "off"}`;
+      status.textContent = `relay: ${live ? "受信中" : "待機中"} messages=${messages} face=${pose.face ? "on" : "off"} ${expressionStatus}`;
     }
   });
   // Mouth from the control page's lip sync, written after physics like the WebUI does

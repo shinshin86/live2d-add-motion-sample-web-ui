@@ -7,6 +7,13 @@
 /** @typedef {{ Type: string, Parameters: Parameter[], FadeInTime?: number, FadeOutTime?: number }} Expression */
 /** @typedef {{ data: Expression, weight: number, from: number, target: number, start: number, duration: number }} Layer */
 
+/** Stable across expression ordering and display-label changes.
+ * @param {{ File: string }} entry
+ */
+export function expressionId(entry) {
+  return entry.File.split("/").pop()?.replace(/\.exp3\.json$/, "") || "";
+}
+
 /** @param {any} model a pixi-live2d-display Cubism 4 model */
 export function attachExpressions(model) {
   const internal = model.internalModel;

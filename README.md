@@ -72,7 +72,7 @@ sources under `motion-defs/` stay git-ignored.
 - The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)
 - A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
 - "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
-- "表情" (expressions) applies an expression over the playing motion. Press the selected expression again or "表情リセット" to fade it out. Expressions work with one-shots, loops and lip sync; this selection currently applies to the control page only.
+- "表情" (expressions) applies an expression over the playing motion. Press the selected expression again or "表情リセット" to fade it out. Expressions work with one-shots, loops and lip sync, and are mirrored to the streaming page when the local relay is available.
 - The panel has two tabs: "モーション" (motions: everything above) and "カメラ" (camera: face tracking, recording and the streaming mode for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)). The camera keeps running when you switch tabs, so you can play emotion motions while it drives the face; a red dot on the tab shows that it is on
 - Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&tab=camera` (open the camera tab), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop, `&recordname=<name>` the motion name), `?uitest=1` (automated drag/zoom test)
 
@@ -151,6 +151,10 @@ OUT=tmp-verify/smile-nod tools/verify_browser.sh --expression smile Action:2 1.0
 ```
 
 `OUT` selects the screenshot folder, which is cleared of PNG files at the start of each run. Inspect both screenshots for the intended face and smooth transitions when switching/resetting in the WebUI.
+
+With `tools/serve.py`, selecting or clearing an expression (including `?expression=`) also updates `stream.html` using the same expression file and fade times. The expression layer runs after face tracking and before lip sync on both pages. The server holds the last expression selection in memory and replays it to a streaming page that opens or reconnects later. Clearing an expression or switching models clears this state; restarting the server forgets it. One-shot motions are not replayed to late joiners. Restart the server and reload both pages after updating this feature.
+
+The relay message is `{"type":"expression","name":"smile"}`, or `name: null` to clear. `name` is the registered expression file stem (ASCII letters, digits, `_` or `-`, up to 240 characters), rather than an index or display label. This stays stable when expressions are reordered or translated, and lets a stream with an explicit `?model=` match its own registrations. Unknown or ambiguous stems leave its current expression unchanged; `?status=1` shows the diagnostic. Model changes also clear expressions on streams pinned to a model. Commands retain FIFO order even during file loading or a backlog; busy pose messages may be omitted. Recording-editor previews remain local.
 
 ### Portable expressions across models
 
@@ -295,7 +299,7 @@ In OBS, right-click the Browser source and choose "Interact" to adjust the avata
 
 You can also set the initial placement in the URL: `stream.html?bg=green&zoom=1.2&x=0.5&y=0.55`. `zoom` is relative to the initial fitted size; `x` and `y` are the avatar's center as fractions of the source width and height (0–1). Valid URL values override saved values on each load. Double-click resets to the URL placement, or to the centered default when no values are specified. Actual model scale is limited to 0.05–5, as in the control page.
 
-`stream.html` shows only the avatar. Motions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only these parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
+`stream.html` shows only the avatar. Motions, expressions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only playback commands and parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
 
 ## Shortcut keys and switching motions from other apps
 

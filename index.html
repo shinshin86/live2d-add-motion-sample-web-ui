@@ -380,7 +380,7 @@
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
     import { createMotionPlayer } from "./web/motion-player.js";
-    import { attachExpressions } from "./web/expressions.js";
+    import { attachExpressions, expressionId } from "./web/expressions.js";
     import { attachRecordingEditor } from "./web/recording-editor.js";
     import { attachHotkeys } from "./web/hotkeys.js";
     import { attachMotionRemote } from "./web/motion-remote.js";
@@ -483,6 +483,7 @@
       // Loop playback lives in web/motion-player.js (shared with stream.html)
       const player = createMotionPlayer(model);
       const isLoopMotion = player.isLoopMotion;
+      const relayOn = await relayAvailable();
       // Register before the lip-sync listener: speech always owns mouth opening.
       const expressions = attachExpressions(model);
       const expressionButtons = [];
@@ -496,6 +497,7 @@
           expressionButtons.forEach((button, i) => button.setAttribute("aria-pressed", String(i === index)));
           resetExpression.disabled = index < 0;
           expressionNote.textContent = index < 0 ? "表情を解除しました" : `表情: ${expressions.entries[index].Name}`;
+          if (relayOn) sendRelay({ type: "expression", name: index < 0 ? null : expressionId(expressions.entries[index]) });
         } catch (error) {
           if (request === expressionRequest) expressionNote.textContent = error.message;
         }
@@ -510,8 +512,7 @@
         document.getElementById("expressionButtons").appendChild(button);
       });
       resetExpression.onclick = () => void selectExpression(-1);
-      // Streaming: motion commands and the face/mouth go to stream.html through tools/serve.py
-      const relayOn = await relayAvailable();
+      // Streaming: motions, expressions and the face/mouth use tools/serve.py.
       let current = null; // the running loop: { motion, label, duration, startedAt }
       let previewing = false;
       let frozen = false; // set by the &freeze= debug hook
@@ -981,7 +982,7 @@
       document.getElementById("openStream").onclick = () => window.open(streamUrl.value, "_blank");
       updateStreamUrl();
       streamNote.textContent = relayOn
-        ? "このページで再生したモーション・カメラ・リップシンクが配信ページに反映されます"
+        ? "このページで選んだ表情・モーション・カメラ・リップシンクが配信ページに反映されます"
         : "配信モードを使うには python3 tools/serve.py でサーバーを起動してください";
       streamNote.classList.toggle("warn", !relayOn);
       document.getElementById("streamConnection").hidden = !relayOn;
@@ -1196,7 +1197,7 @@
       const expression = params.get("expression");
       if (expression) {
         const index = expressions.entries.findIndex(entry => entry.Name === expression ||
-          entry.File.split("/").pop().replace(/\.exp3\.json$/, "") === expression);
+          expressionId(entry) === expression);
         if (index >= 0) await selectExpression(index);
         else expressionNote.textContent = `表情が見つかりません: ${expression}`;
       }

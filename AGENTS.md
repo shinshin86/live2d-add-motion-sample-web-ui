@@ -210,8 +210,8 @@ The control page lists expressions in the motion tab. One selection is active;
 click it again or use "表情リセット" to fade out. The layer runs after blink/face
 tracking and before lip sync, without saving back into the motion pose. Keep
 LipSync parameters out when designing talking expressions. Expressions do not
-need to start/end at the base pose. Expression selection is local to index.html
-and is not relayed to stream.html.
+need to start/end at the base pose. Selection/clear on index.html, including the
+expression query hook, is relayed to stream.html when relayOn is enabled.
 
 Verify each expression alone and over an Action, plus loop/speech coexistence:
 `OUT=tmp-verify/<case> tools/verify_browser.sh --expression <stem> [Action:n] [seconds]`.
@@ -269,6 +269,38 @@ Surprise sets MouthOpenY for a visible open mouth;
 lip sync has priority over this value during speech. Check each expression alone
 and over an Action on every opted-in model, plus switching/reset and loop/speech
 coexistence. The existing expression query hook accepts shared stems and labels.
+
+### Expression relay
+
+`POST /live/send` accepts `{"type":"expression","name":"<file stem>"}` or
+`name: null` to clear. Use the registered File basename without `.exp3.json`,
+not its index or display label. The ID uses ASCII letters/digits/_/- (1–240 chars).
+Only type/name fields are accepted. Invalid values/paths are rejected on server
+and client; unknown or ambiguous IDs are ignored by the streaming renderer with
+a diagnostic under `?status=1`. Keep the current expression on an unknown ID.
+
+The server keeps the latest expression message in memory under clients_lock and
+replays it to new/reconnected `/live/events` subscribers, registering each queue
+and queuing its snapshot in the same lock to preserve order. Clear/model switches
+reset that state; server restart forgets it. Model notifications clear expressions
+even on explicit-model streams, which otherwise stay on their pinned model. No
+expression snapshots go to `/live/commands`; no one-shot motion replay is added.
+Control-page model reloads remove `?expression=` so it cannot reapply the old selection.
+`GET /live/status` advertises `expressionRelay: 1`.
+
+Busy pose messages may be dropped; expression/motion/stop commands retain FIFO
+order in the sender, server and streaming page's asynchronous loading queue.
+Event queues limit pose backlog to 64 and retain discrete commands beyond that;
+external-command queues are unchanged. In stream.html, attachExpressions runs
+after the face driver and before lip sync, preserving the same blend/fade behavior
+as index.html. Recording previews and placement remain local. Old receivers ignore
+the unknown expression type. Restart the server and reload both pages after updates.
+
+Verify apply/clear and late join on both models with one headless Chrome at a time;
+drive `/live/send` externally while stream.html is open. Also check unknown IDs on
+explicit-model streams, model-switch clear, invalid requests and command ordering
+under pose backlog. Screenshots alone cannot prove fades; retain the blend/fade
+tests and check switching/reset in a browser.
 
 ## Switching installed models
 
@@ -420,7 +452,8 @@ and JSON `{"motion":"<ID or exact Name>"}` / `{"stop":true}`. IDs take precedenc
 ambiguous names return 409, unknown names 404, missing/invalid tokens 401, and
 no connected controller 503. A 204 means queued, not confirmed playback.
 `GET /live/commands` is a separate SSE stream for index.html; do not change
-the existing `/live/events` relay or stream.html message format.
+the existing motion/stop formats on `/live/events`; expressions use the separate
+expression message described above.
 `GET /live/status` advertises `motionRemote: 1` and `controllers` (including
 diagnostic subscribers; disconnection detection may wait for a keepalive).
 `web/motion-remote.js` subscribes only when this capability is available.
