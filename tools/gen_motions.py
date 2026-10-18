@@ -251,7 +251,7 @@ def build_expressions(definitions, available):
     return expressions, entries
 
 
-def expression_registration(runtime, model3, entries):
+def expression_registration(runtime, model3, entries, shared_count=0):
     """Own only exact registrations recorded by an earlier generation run.
 
     A sidecar avoids adding private fields to model3.json or mistaking a model's
@@ -266,7 +266,9 @@ def expression_registration(runtime, model3, entries):
         if any(e["Name"] == entry["Name"] or os.path.normpath(e["File"]) == os.path.normpath(entry["File"])
                for e in preserved) or (os.path.exists(path) and entry["File"] not in owned_files):
             sys.exit(f"ERROR: expression conflicts with an unmanaged name or file: {entry['File']}")
-    return preserved + entries, ledger, owned + [entry for entry in entries if entry not in owned]
+    # Shared selections lead the UI; shipped entries retain their relative order.
+    registered = entries[:shared_count] + preserved + entries[shared_count:]
+    return registered, ledger, owned + [entry for entry in entries if entry not in owned]
 
 
 def observed_reference(runtime, model3):
@@ -411,9 +413,10 @@ def main():
         clash = sorted(set(shared_expression_defs) & set(expression_defs))
         if clash:
             raise ValueError(f"shared and model/local definitions share expression names: {', '.join(clash)}")
-        expression_defs.update(shared_expression_defs)
+        expression_defs = {**shared_expression_defs, **expression_defs}
         expressions, expression_entries = build_expressions(expression_defs, available)
-        registered_expressions, expression_ledger, expression_ownership = expression_registration(runtime, model3, expression_entries)
+        registered_expressions, expression_ledger, expression_ownership = expression_registration(
+            runtime, model3, expression_entries, shared_count=len(shared_expression_defs))
         shared_motions, shared_manifest = load_shared_motions(
             shared, os.path.join(DEFS_DIR, "shared"), runtime, model3, available,
             base, ranges, curve, motion)

@@ -10,7 +10,12 @@ returns to the base pose.
 """
 
 SHARED_MOTIONS = {"gestures": {"nod": {}, "shakehead": {}, "surprised": {}}}
-SHARED_EXPRESSIONS = {"faces": {name: {} for name in ("surprised", "glare", "closed_smile")}}
+SHARED_EXPRESSIONS = {"faces": {
+    "smile": {"name": "smile"},
+    "shy": {"name": "shy"},
+    "surprised": {},
+    "glare": {},
+}}
 
 
 def define(curve, motion):
@@ -153,25 +158,6 @@ def define(curve, motion):
     # Expressions stay on top of any motion until cleared. Keep MouthOpenY
     # free for speech; Multiply eye openness preserves blinking.
     EXPRESSIONS = {
-        "smile": {
-            "label": "笑顔", "fade_in": 0.4, "fade_out": 0.4,
-            "parameters": [
-                ("ParamEyeLOpen", 0, "Multiply"), ("ParamEyeROpen", 0, "Multiply"),
-                ("ParamEyeLSmile", 1, "Overwrite"), ("ParamEyeRSmile", 1, "Overwrite"),
-                ("ParamBrowLY", 0.3, "Add"), ("ParamBrowRY", 0.3, "Add"),
-                ("ParamMouthForm", 1, "Overwrite"), ("ParamCheek", 0.5, "Overwrite"),
-            ],
-        },
-        "shy": {
-            "label": "照れ", "fade_in": 0.5, "fade_out": 0.5,
-            "parameters": [
-                ("ParamCheek", 1, "Overwrite"),
-                ("ParamEyeLOpen", 0.65, "Multiply"), ("ParamEyeROpen", 0.65, "Multiply"),
-                ("ParamBrowLY", -0.2, "Add"), ("ParamBrowRY", -0.2, "Add"),
-                ("ParamBrowLForm", -0.6, "Overwrite"), ("ParamBrowRForm", -0.6, "Overwrite"),
-                ("ParamMouthForm", 0.3, "Overwrite"),
-            ],
-        },
         # The bangs hide the brows and the existing motions have no angry
         # brows, so this model cannot express anger clearly. Use a sleepy face.
         "sleepy": {

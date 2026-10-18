@@ -122,12 +122,12 @@ Generation uses ranges/base poses from the model's original motions; standard ID
 
 ## Expressions
 
-An expression (`.exp3.json`) holds parameter changes independently of the motion. The bundled Hiyori definitions include smile, shy and sleepy expressions ("笑顔", "照れ", "ねむい"). Its brows are hidden by bangs and the existing motions provide no angry brow pose, so the sample uses a sleepy face instead. To define your own, return an optional third dictionary from `define(curve, motion)`:
+An expression (`.exp3.json`) holds parameter changes independently of the motion. The Hiyori sample selects shared smile, shy, surprised and half-closed glare expressions, followed by its model-specific sleepy expression ("ねむい"). Its brows are hidden by bangs and the existing motions provide no angry brow pose, so the sample uses a sleepy face instead. To define your own, return an optional third dictionary from `define(curve, motion)`:
 
 ```python
 EXPRESSIONS = {
-    "smile": {
-        "label": "Smile", "fade_in": 0.4, "fade_out": 0.4,
+    "custom_smile": {
+        "label": "My smile", "fade_in": 0.4, "fade_out": 0.4,
         "parameters": [
             ("ParamEyeLOpen", 0, "Multiply"),
             ("ParamEyeROpen", 0, "Multiply"),
@@ -154,14 +154,15 @@ OUT=tmp-verify/smile-nod tools/verify_browser.sh --expression smile Action:2 1.0
 
 ### Portable expressions across models
 
-Shared packs can return `(MOTIONS, MANIFEST, EXPRESSIONS)`; existing two-item packs still work. An expressions-only pack returns `({}, [], EXPRESSIONS)`. The bundled `motion-defs/shared/faces.py` provides surprised, sideways half-closed eyes and closed-eye smile expressions, checked on both Hiyori and Haru. Select them separately from shared motions in the main or local model definitions:
+Shared packs can return `(MOTIONS, MANIFEST, EXPRESSIONS)`; existing two-item packs still work. An expressions-only pack returns `({}, [], EXPRESSIONS)`. The bundled `motion-defs/shared/faces.py` provides smile, shy, surprised and sideways half-closed glare expressions, checked on both Hiyori and Haru. Select them separately from shared motions in the main or local model definitions:
 
 ```python
 SHARED_EXPRESSIONS = {
     "faces": {
+        "smile": {"name": "smile"},
+        "shy": {"name": "shy"},
         "surprised": {},
         "glare": {"scale": 0.8},
-        "closed_smile": {"label": "Closed-eye smile"},
     },
 }
 ```
@@ -178,7 +179,11 @@ For Add/Overwrite, first apply `n *= scale`, then map to `base + n * (max - base
 
 Selection and options merge like `SHARED_MOTIONS`: local options override main options; `False` disables an entry; `name`, `label`, `scale` and `parameters` are supported. IDs default to `shared_<pack>_<expression>` and displayed labels start with `共通: `. Without a declaration, no shared expressions are added. Missing parameters, physics outputs and custom IDs without observed ranges are skipped with a note; no usable parameters fails. Model/local/shared name and label collisions, and collisions with shipped names or unmanaged files, fail before any output is written.
 
-Shared expressions use the same `.generated-expressions.json` ownership ledger as model expressions. Opting out unregisters them and retains their files and ownership for later reuse. Existing expressions and Action indices stay unchanged. Verify each selected expression alone and over a motion on every model, using e.g. `--expression shared_faces_glare` or `?expression=共通:%20ジト目`. The surprised sample sets mouth opening; lip sync overrides it while speaking. Smug, troubled and stronger embarrassment were omitted because they did not read consistently on both sample rigs using their common parameters.
+Generated registrations and the UI list shared expressions first, then shipped expressions in their original relative order, then model/local expressions. The examples keep `?expression=smile` / `shy` working through the `name` option; their labels become `共通: 笑顔` / `共通: 照れ`. Their former model definitions are removed. Hiyori retains its model-specific sleepy expression; Haru retains angry. `closed_smile` is removed because smile already closes the eyes in a smiling arc.
+
+For Haru, remap `ParamCheek` to its observed `ParamTere` range `[0,1]` in both smile/shy selections. Smile also skips `ParamBrowLY` / `ParamBrowRY` with `None`, retaining Haru's original motion-driven brows. The shared smile uses blush `0.45` between the samples' previous `0.5` / `0.4`. Shy uses normalized brow targets and MouthForm multiplied by `0.3`; both samples rest at MouthForm `1`, giving the same restrained smile at rest while retaining the motion's mouth form.
+
+Shared expressions use the same `.generated-expressions.json` ownership ledger as model expressions. Opting out unregisters them and retains their files and ownership for later reuse. Moving an owned expression into a shared pack can reuse its file stem; its old owned registration is replaced without touching shipped entries. Keep the ledger for this transition: unmanaged files still cause a collision. Action indices stay unchanged. Verify each selected expression alone and over a motion on every model, using e.g. `--expression shared_faces_glare` or `?expression=共通:%20ジト目`. The surprised sample sets mouth opening; lip sync overrides it while speaking. Smug, troubled and stronger embarrassment were omitted because they did not read consistently on both sample rigs using their common parameters.
 
 ## Loop motions (e.g. an emotion held while speaking)
 

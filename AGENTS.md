@@ -178,7 +178,7 @@ motions use them. Hiyori examples:
 - Idle motions park the arms (ArmLA/RA=-10), so moving the arms in an action
   easily breaks continuity with the surrounding idle.
 - Hiyori's brows are hidden by bangs and its existing motions provide no angry
-  brow pose. The third sample expression is `sleepy` ("ねむい"), not anger:
+  brow pose. The model-specific sample expression is `sleepy` ("ねむい"), not anger:
   EyeOpen multiplied by 0.5, low brows and MouthForm=0. Clear EyeSmile and Cheek
   to avoid inheriting a smile or blush. MouthForm=-1 leaves a small "o" even with
   MouthOpenY=0. Confirm brow angles and forms together in actual renders; do not
@@ -223,7 +223,7 @@ prove the fade. `?expression=<stem or exact Name>` applies on load.
 
 Shared packs may return `(MOTIONS, MANIFEST, EXPRESSIONS)`; two-item packs still
 work and an expressions-only pack returns `({}, [], EXPRESSIONS)`. Select with
-`SHARED_EXPRESSIONS = {"faces": {"surprised": {}, "glare": {}, "closed_smile": {}}}`
+`SHARED_EXPRESSIONS = {"faces": {"smile": {"name": "smile"}, "shy": {"name": "shy"}, "surprised": {}, "glare": {}}}`
 in main/local model definitions. This selection is independent of SHARED_MOTIONS;
 local options merge over main options and False disables. The same name/label/
 scale/parameters options apply. Default stems are `shared_<pack>_<expression>`;
@@ -244,13 +244,28 @@ duplicate source/target IDs fail. Name, label and file collisions with model/loc
 other shared or shipped expressions fail before writes. Shared and model expressions
 share `.generated-expressions.json`: retain it, including ownership of unselected
 remnants. Opting out unregisters expressions while retaining their files. Existing
-Action indices and existing expression files/registrations must stay unchanged.
+Action indices and unrelated expression files/registrations must stay unchanged.
+Registration/UI order is shared selections first, then preserved shipped entries
+(same relative order), then model/local definitions. Moving an owned model expression
+to the shared pack can reuse its stem via name: old owned registrations are replaced
+even when their labels change. Do not relax checks for unmanaged files or shipped
+registrations. Retain the ledger, including earlier ownership records.
 
-`faces.py` keeps only surprise, sideways half-closed eyes and closed-eye smile,
-visually checked on both Hiyori and Haru. Smug, troubled and stronger embarrassment
+`faces.py` provides smile, shy, surprise and sideways half-closed eyes, visually
+checked on both Hiyori and Haru. The samples keep smile/shy file stems with name
+overrides, so `?expression=smile` / `shy` still work; labels use `共通: `.
+Remove their old model definitions; only Hiyori sleepy and Haru angry remain
+model-specific. Do not add closed_smile: smile already gives the same ^^ eyes.
+Smug, troubled and stronger embarrassment
 did not read consistently using their common IDs; do not restore them without
-new visual evidence. Haru has no ParamCheek; Haru-only blush/tear/eye-form IDs are
-not part of this shared pack. Surprise sets MouthOpenY for a visible open mouth;
+new visual evidence. Haru has no ParamCheek: map it to ParamTere (observed [0,1],
+base 0) in its smile/shy selections. Smile also skips BrowLY/RY in Haru to keep
+its original motion-driven brows. The shared smile uses blush 0.45 between the
+previous 0.5/0.4 values. Shy uses normalized brow targets and MouthForm Multiply
+0.3; both sample models rest at 1, preserving the resting mouth while allowing
+motion changes. Visually check these adaptations over actions as well as at rest.
+Other Haru-only tear/eye-form IDs are not part of this shared pack.
+Surprise sets MouthOpenY for a visible open mouth;
 lip sync has priority over this value during speech. Check each expression alone
 and over an Action on every opted-in model, plus switching/reset and loop/speech
 coexistence. The existing expression query hook accepts shared stems and labels.
