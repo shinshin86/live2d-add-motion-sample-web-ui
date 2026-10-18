@@ -16,6 +16,8 @@ tweak motions in motion-defs/<model>.py (the per-model definition file):
     ownership of generated registrations, preserving the model's own expressions
   - optional SHARED_MOTIONS selects normalized templates from motion-defs/shared/;
     model/local options may rename, scale, remap parameters or disable entries
+  - SHARED_EXPRESSIONS selects portable expressions independently, sharing
+    ordinary expressions' ownership and collision checks
   - per-model definitions are workspace artifacts and, like models/, are
     git-ignored (the bundled sample and shared packs are tracked); keep one deliberately
     with `git add -f`
@@ -55,6 +57,7 @@ import re
 import sys
 
 from recording_edits import apply_edit
+from shared_expressions import load_shared_expressions
 from shared_motions import load_shared_motions, merge_selection, owned_files, shared_ownership
 
 FPS = 30.0
@@ -174,7 +177,7 @@ def motion(duration, curves, loop=False):
     }
 
 
-def load_definition_file(stem, shared=None):
+def load_definition_file(stem, shared=None, shared_expressions=None):
     def_path = os.path.join(DEFS_DIR, f"{stem}.py")
     if not os.path.exists(def_path):
         sys.exit(f"ERROR: no motion definitions for this model: {def_path}\n"
@@ -185,6 +188,8 @@ def load_definition_file(stem, shared=None):
     spec.loader.exec_module(mod)
     if shared is not None:
         merge_selection(shared, getattr(mod, "SHARED_MOTIONS", {}), def_path)
+    if shared_expressions is not None:
+        merge_selection(shared_expressions, getattr(mod, "SHARED_EXPRESSIONS", {}), def_path, "SHARED_EXPRESSIONS")
     definitions = mod.define(curve, motion)
     if len(definitions) not in (2, 3):
         sys.exit(f"ERROR: define() must return (MOTIONS, MANIFEST[, EXPRESSIONS]) in {def_path}.")
@@ -195,11 +200,11 @@ def load_definition_file(stem, shared=None):
     return motions, manifest, expressions, def_path
 
 
-def load_definitions(stem, shared=None):
-    motions, manifest, expressions, def_path = load_definition_file(stem, shared)
+def load_definitions(stem, shared=None, shared_expressions=None):
+    motions, manifest, expressions, def_path = load_definition_file(stem, shared, shared_expressions)
     local_path = os.path.join(DEFS_DIR, f"{stem}.local.py")
     if os.path.exists(local_path):
-        local_motions, local_manifest, local_expressions, _ = load_definition_file(f"{stem}.local", shared)
+        local_motions, local_manifest, local_expressions, _ = load_definition_file(f"{stem}.local", shared, shared_expressions)
         for kind, main_defs, local_defs in (("motion", motions, local_motions),
                                             ("expression", expressions, local_expressions)):
             clash = sorted(set(main_defs) & set(local_defs))
@@ -378,9 +383,9 @@ def main():
     model3_path = model3_files[0]
     stem = os.path.basename(model3_path).replace(".model3.json", "")
 
-    shared = {}
+    shared, shared_expressions = {}, {}
     try:
-        motions, manifest, expression_defs, def_path = load_definitions(stem, shared)
+        motions, manifest, expression_defs, def_path = load_definitions(stem, shared, shared_expressions)
     except ValueError as exc:
         sys.exit(f"ERROR: {exc}")
     print(f"definitions: {def_path} ({len(motions)} motions)")
@@ -389,8 +394,6 @@ def main():
     cdi_files = glob.glob(os.path.join(runtime, "*.cdi3.json"))
     available = {p["Id"] for p in json.load(open(cdi_files[0]))["Parameters"]} if cdi_files else None
     model3 = json.load(open(model3_path))
-    expressions, expression_entries = build_expressions(expression_defs, available)
-    registered_expressions, expression_ledger, expression_ownership = expression_registration(runtime, model3, expression_entries)
 
     # Camera recordings become motions too (parameters the model lacks are skipped)
     rec_motions, rec_manifest = load_recordings(stem, runtime, model3, available)
@@ -403,6 +406,14 @@ def main():
     # Append portable motions so existing Action indices (including recordings) stay stable.
     try:
         base, ranges = observed_reference(runtime, model3)
+        shared_expression_defs = load_shared_expressions(
+            shared_expressions, os.path.join(DEFS_DIR, "shared"), runtime, model3, available, base, ranges)
+        clash = sorted(set(shared_expression_defs) & set(expression_defs))
+        if clash:
+            raise ValueError(f"shared and model/local definitions share expression names: {', '.join(clash)}")
+        expression_defs.update(shared_expression_defs)
+        expressions, expression_entries = build_expressions(expression_defs, available)
+        registered_expressions, expression_ledger, expression_ownership = expression_registration(runtime, model3, expression_entries)
         shared_motions, shared_manifest = load_shared_motions(
             shared, os.path.join(DEFS_DIR, "shared"), runtime, model3, available,
             base, ranges, curve, motion)

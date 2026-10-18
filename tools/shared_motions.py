@@ -11,17 +11,17 @@ def finite(value):
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
 
 
-def merge_selection(selection, declaration, location):
+def merge_selection(selection, declaration, location, field="SHARED_MOTIONS"):
     """Local declarations override individual options, or disable an entry with False."""
     if not isinstance(declaration, dict):
-        raise ValueError(f"{location}: SHARED_MOTIONS must be a dictionary")
+        raise ValueError(f"{location}: {field} must be a dictionary")
     for pack, entries in declaration.items():
         if not isinstance(pack, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", pack) or not isinstance(entries, dict):
             raise ValueError(f"{location}: invalid shared pack {pack!r}")
         selected = selection.setdefault(pack, {})
         for name, options in entries.items():
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
-                raise ValueError(f"{location}: invalid shared motion name {name!r}")
+                raise ValueError(f"{location}: invalid shared entry name {name!r}")
             if options is False:
                 selected[name] = False
             elif isinstance(options, dict) and not set(options) - {"name", "label", "scale", "parameters"}:
@@ -51,6 +51,20 @@ def template_curve(pid, keys, loop=False, smooth=False):
 
 def template_motion(duration, curves, loop=False):
     return {"duration": duration, "curves": curves, "loop": loop}
+
+
+def load_pack(folder, pack):
+    """Read motion and optional expression templates, including old two-item packs."""
+    path = os.path.join(folder, pack + ".py")
+    if not os.path.isfile(path):
+        raise ValueError(f"shared pack not found: {pack}")
+    spec = importlib.util.spec_from_file_location(f"shared_pack_{pack}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    definitions = module.define(template_curve, template_motion)
+    if not isinstance(definitions, (tuple, list)) or len(definitions) not in (2, 3):
+        raise ValueError(f"shared {pack}: define() must return (MOTIONS, MANIFEST[, EXPRESSIONS])")
+    return (*definitions, {}) if len(definitions) == 2 else definitions
 
 
 def owned_files(runtime):
@@ -84,13 +98,7 @@ def load_shared_motions(selection, folder, runtime, model3, available, base, ran
         enabled = {name: options for name, options in entries.items() if options is not False}
         if not enabled:
             continue
-        path = os.path.join(folder, pack + ".py")
-        if not os.path.isfile(path):
-            raise ValueError(f"shared pack not found: {pack}")
-        spec = importlib.util.spec_from_file_location(f"shared_motion_{pack}", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        templates, descriptions = module.define(template_curve, template_motion)
+        templates, descriptions, _ = load_pack(folder, pack)
         if len(descriptions) != len(templates) or {entry[0] for entry in descriptions} != set(templates):
             raise ValueError(f"shared {pack}: MANIFEST and MOTIONS keys must match uniquely")
         descriptions = {entry[0]: entry[1:] for entry in descriptions}

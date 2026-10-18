@@ -10,6 +10,7 @@ returns to the base pose.
 """
 
 SHARED_MOTIONS = {"gestures": {"nod": {}, "shakehead": {}, "surprised": {}}}
+SHARED_EXPRESSIONS = {"faces": {name: {} for name in ("surprised", "glare", "closed_smile")}}
 
 
 def define(curve, motion):
