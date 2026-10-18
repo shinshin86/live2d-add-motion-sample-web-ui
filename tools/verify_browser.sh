@@ -6,6 +6,8 @@
 #   tools/verify_browser.sh Action:0 1.4        # one motion, frozen at the given second
 #   tools/verify_browser.sh --loop Action:1     # loop motion: both sides of the 1st-3rd seams
 #                                               # + a mid-cycle shot, with simulated lip sync
+#   tools/verify_browser.sh --expression smile [Action:0] [seconds]
+#                                               # expression alone or over a motion
 # Output: tmp-verify/*.png (inspect visually for expressions / poses / artifacts)
 #
 # Headless-verification pitfalls (already handled by this script):
@@ -21,7 +23,7 @@ cd "$(dirname "$0")/.."
 
 CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 PORT="${PORT:-8791}"
-OUT=tmp-verify
+OUT="${OUT:-tmp-verify}"
 mkdir -p "$OUT"
 rm -f "$OUT"/*.png  # avoid mixing results from a previous run
 
@@ -50,7 +52,13 @@ shot() { # shot <output name> <URL query> [freeze seconds]
   echo "wrote $OUT/$1.png"
 }
 
-if [ "${1:-}" = "--loop" ]; then
+if [ "${1:-}" = "--expression" ]; then
+  expression="${2:?usage: verify_browser.sh --expression name [Group:index] [seconds]}"
+  encoded=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$expression")
+  query="expression=$encoded&lipsync=1"
+  if [ -n "${3:-}" ]; then query="$query&play=$3"; fi
+  shot "expression_${encoded}_$(echo "${3:-alone}" | tr ':' '_')" "$query" "${4:-1.5}"
+elif [ "${1:-}" = "--loop" ]; then
   # Seam check: shots just before and after the end of cycles 1-3 should look
   # alike (no jump, still the loop's expression, not the base pose), and the
   # mid-cycle shot of cycle 3 proves the motion is still running.

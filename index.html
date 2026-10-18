@@ -222,6 +222,12 @@
       <button role="tab" id="tab-camera" data-tab="camera" aria-selected="false" aria-controls="tabpanel-camera">カメラ</button>
     </div>
     <div class="tabpanel" id="tabpanel-motion" role="tabpanel" aria-labelledby="tab-motion">
+    <div id="expressionPanel" class="tool-card" hidden>
+      <div class="card-title">表情<small>モーションに重ねて使えます</small></div>
+      <div id="expressionButtons" class="choices" aria-label="表情"></div>
+      <button id="resetExpression" class="action" disabled>表情リセット</button>
+      <div id="expressionNote" class="note" role="status" aria-live="polite">同じ表情をもう一度押すと解除します</div>
+    </div>
     <div id="lipsyncPanel" class="tool-card">
       <div class="card-title">リップシンク<small>どの表情・ループにも重ねられます</small></div>
       <div id="lipsyncModes" class="choices">
@@ -361,6 +367,7 @@
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
     import { createMotionPlayer } from "./web/motion-player.js";
+    import { attachExpressions } from "./web/expressions.js";
     import { attachHotkeys } from "./web/hotkeys.js";
     import { attachMotionRemote } from "./web/motion-remote.js";
     import { attachModelSwitch } from "./web/model-switch.js";
@@ -462,6 +469,33 @@
       // Loop playback lives in web/motion-player.js (shared with stream.html)
       const player = createMotionPlayer(model);
       const isLoopMotion = player.isLoopMotion;
+      // Register before the lip-sync listener: speech always owns mouth opening.
+      const expressions = attachExpressions(model);
+      const expressionButtons = [];
+      const expressionNote = document.getElementById("expressionNote");
+      const resetExpression = document.getElementById("resetExpression");
+      let expressionRequest = 0;
+      async function selectExpression(index) {
+        const request = ++expressionRequest;
+        try {
+          if (!await expressions.select(index) || request !== expressionRequest) return;
+          expressionButtons.forEach((button, i) => button.setAttribute("aria-pressed", String(i === index)));
+          resetExpression.disabled = index < 0;
+          expressionNote.textContent = index < 0 ? "表情を解除しました" : `表情: ${expressions.entries[index].Name}`;
+        } catch (error) {
+          if (request === expressionRequest) expressionNote.textContent = error.message;
+        }
+      }
+      document.getElementById("expressionPanel").hidden = !expressions.entries.length;
+      expressions.entries.forEach((entry, index) => {
+        const button = document.createElement("button");
+        button.textContent = entry.Name;
+        button.setAttribute("aria-pressed", "false");
+        button.onclick = () => void selectExpression(expressions.selected === index ? -1 : index);
+        expressionButtons.push(button);
+        document.getElementById("expressionButtons").appendChild(button);
+      });
+      resetExpression.onclick = () => void selectExpression(-1);
       // Streaming: motion commands and the face/mouth go to stream.html through tools/serve.py
       const relayOn = await relayAvailable();
       let current = null; // the running loop: { motion, label, duration, startedAt }
@@ -1074,6 +1108,13 @@
       // (&lipsync=mic: microphone), &audio=<url> lip-syncs to an audio file
       const params = new URLSearchParams(location.search);
       // &tab=motion|camera opens a tab; otherwise the camera hooks below open the camera tab
+      const expression = params.get("expression");
+      if (expression) {
+        const index = expressions.entries.findIndex(entry => entry.Name === expression ||
+          entry.File.split("/").pop().replace(/\.exp3\.json$/, "") === expression);
+        if (index >= 0) await selectExpression(index);
+        else expressionNote.textContent = `表情が見つかりません: ${expression}`;
+      }
       if (params.get("tab")) selectTab(params.get("tab") === "camera" ? "camera" : "motion");
       else if (params.get("camera") || params.get("fakeface") || params.get("record")) selectTab("camera");
       // &fakeface=1 drives the face with synthetic tracking results (no camera)

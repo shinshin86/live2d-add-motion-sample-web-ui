@@ -76,16 +76,16 @@ tmp-verify/                [git-ignored] verify_browser.sh output
 ```
 
 Important: everything under `models/` is **generated**. Never edit
-`.motion3.json` or `model3.json` directly — edit `motion-defs/<model>.py`
+`.motion3.json`, generated `.exp3.json` or `model3.json` directly — edit `motion-defs/<model>.py`
 and re-run `gen_motions.py`. Everything under `tools/` is a model-agnostic
 engine; do not edit it when switching models.
 
 ## Design rules (model-independent)
 
 An optional `motion-defs/<model>.local.py` uses the same `define(curve, motion)`
-format and appends local motions after the main definitions. Duplicate names
-fail. Keep local definitions and their source data under the git-ignored
-`motion-defs/` directory, never in the generated `models/` working copy alone.
+format and appends local motions and expressions after the main definitions.
+Duplicate names fail. Keep local definitions and their source data under the
+git-ignored `motion-defs/` directory, never in the generated `models/` working copy alone.
 
 - Never edit rigs/meshes in Cubism Editor. Use only the model's existing
   parameters.
@@ -148,6 +148,38 @@ motions use them. Hiyori examples:
 
 For a new model, rediscover this kind of quirk from how its existing motion
 curves use the parameters.
+
+## Expressions
+
+`define(curve, motion)` may return `(MOTIONS, MANIFEST, EXPRESSIONS)`; the older
+2-tuple still works. `EXPRESSIONS` maps an ASCII file stem to a dictionary with
+`parameters: [(ParameterId, value, blend), ...]`, optional `label` (defaults to
+the stem), `fade_in` and `fade_out` (both default to 0.4 seconds). Blends are
+`Add`, `Multiply` and `Overwrite`; labels must be unique.
+
+Generation writes `expressions/<stem>.exp3.json` and registers
+`FileReferences.Expressions`. The generated `.generated-expressions.json`
+sidecar in the runtime directory records ownership: keep it with the working
+model. Only exact owned registrations are replaced; shipped entries/files are
+preserved and conflicting names/files fail. Removing a definition unregisters
+it but leaves its generated file on disk. The independent validator checks all
+registered expressions, including schema, finite values, blends, parameter IDs,
+physics outputs, and resulting values at the estimated base pose. It uses
+observed ranges or conservative conventional ranges for standard IDs; custom IDs
+without a reference range fail.
+
+The control page lists expressions in the motion tab. One selection is active;
+click it again or use "表情リセット" to fade out. The layer runs after blink/face
+tracking and before lip sync, without saving back into the motion pose. Keep
+LipSync parameters out when designing talking expressions. Expressions do not
+need to start/end at the base pose. Expression selection is local to index.html
+and is not relayed to stream.html.
+
+Verify each expression alone and over an Action, plus loop/speech coexistence:
+`OUT=tmp-verify/<case> tools/verify_browser.sh --expression <stem> [Action:n] [seconds]`.
+`OUT` selects the folder cleared of PNG files on each run. Inspect the screenshots
+and check switching/reset fades in the browser; a static screenshot alone cannot
+prove the fade. `?expression=<stem or exact Name>` applies on load.
 
 ## Switching installed models
 
@@ -255,6 +287,7 @@ the control page after updating these endpoints.
 | `&cycles=3` | End a loop motion after its 3rd cycle |
 | `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame); `&lipsync=mic` uses the microphone |
 | `&audio=<url>` | Lip-sync to an audio file (loudness of the playing audio) |
+| `&expression=<name>` | Apply an exp3 expression by file stem or exact display name |
 | `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh; also on stream.html) |
 | `&tab=motion\|camera` | Open a panel tab (the camera hooks open the camera tab unless `&tab=` says otherwise) |
 | `&camera=1` | Start the camera on load |
@@ -300,8 +333,8 @@ the control page after updating these endpoints.
 1. `validate_motions.py` exits 0
 2. Every `verify_browser.sh` screenshot shows the intended expression/pose
    (still in the base pose = playback failed; no artifacts or unnatural fades)
-3. Existing motions and groups are untouched (the model3.json diff is the
-   Action group only)
+3. Existing motions, groups and shipped expressions are untouched (the model3.json
+   diff is the Action group + generated Expressions only)
 4. The user has been given the local-server URL to check
 
 ## License cautions

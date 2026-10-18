@@ -60,18 +60,19 @@ python3 tools/serve.py              # serve (add --port 8766 if 8765 is taken)
 
 Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a sample definition is bundled as a reference). A different model needs its own definitions matching its parameters — that design work is exactly what you delegate to the AI agent. Definition files are treated as per-model workspace artifacts and are git-ignored just like `models/`, so switching models never dirties the repository.
 
-## Using the WebUI
-
 For local additions to a bundled definition, create `motion-defs/<model-name>.local.py`
-with the same `define(curve, motion)` format. Its motions are appended after the
-main definitions; duplicate names fail. This file and any local motion sources
-under `motion-defs/` stay git-ignored.
+with the same `define(curve, motion)` format. Its motions and expressions are appended
+after the main definitions; duplicate names fail. This file and any local motion
+sources under `motion-defs/` stay git-ignored.
+
+## Using the WebUI
 
 - Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
 - **Drag** the avatar to move it, **mouse wheel / pinch** to zoom around the cursor, and "Reset view" to restore the initial placement
 - The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)
 - A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
 - "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
+- "表情" (expressions) applies an expression over the playing motion. Press the selected expression again or "表情リセット" to fade it out. Expressions work with one-shots, loops and lip sync; this selection currently applies to the control page only.
 - The panel has two tabs: "モーション" (motions: everything above) and "カメラ" (camera: face tracking, recording and the streaming mode for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)). The camera keeps running when you switch tabs, so you can play emotion motions while it drives the face; a red dot on the tab shows that it is on
 - Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&tab=camera` (open the camera tab), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop, `&recordname=<name>` the motion name), `?uitest=1` (automated drag/zoom test)
 
@@ -98,6 +99,38 @@ tools/verify_browser.sh   # captures peak poses with headless Chrome (Chrome req
 ```
 
 Design rules (value ranges, returning to the base pose, avoiding physics-driven parameters, etc.) and model-specific knowledge are documented in [AGENTS.md](AGENTS.md). It is written for AI agents but useful for humans too.
+
+## Expressions
+
+An expression (`.exp3.json`) holds parameter changes independently of the motion. The bundled Hiyori definitions include smile, shy and angry expressions. To define your own, return an optional third dictionary from `define(curve, motion)`:
+
+```python
+EXPRESSIONS = {
+    "smile": {
+        "label": "Smile", "fade_in": 0.4, "fade_out": 0.4,
+        "parameters": [
+            ("ParamEyeLOpen", 0, "Multiply"),
+            ("ParamEyeROpen", 0, "Multiply"),
+            ("ParamEyeLSmile", 1, "Overwrite"),
+            ("ParamEyeRSmile", 1, "Overwrite"),
+        ],
+    },
+}
+return MOTIONS, MANIFEST, EXPRESSIONS
+```
+
+The old `(MOTIONS, MANIFEST)` return still works. File names use ASCII letters, digits, `_` or `-`; labels must be unique. Each parameter tuple is `(ID, value, blend)`: `Add` adds to the motion value, `Multiply` multiplies it, and `Overwrite` replaces it. Multiply eye openness to retain blinks. Leave LipSync parameters out when speech should control the mouth. Fades default to 0.4 seconds; `label` defaults to the file name.
+
+Run the usual generator and validator. Files go to `models/<model>/expressions/` and are registered in `FileReferences.Expressions`. The generator keeps ownership records in `models/<model>/.generated-expressions.json`: retain this sidecar when reusing the working model. It updates/removes only its own registrations and rejects collisions with the model's existing names or files. Removing a definition unregisters it; the old generated file stays on disk. The validator checks the exp3 format, parameter IDs, physics outputs and the result of each blend on the estimated base pose against observed ranges (conservative conventional ranges for standard IDs without a reference). During playback values are clamped to the model's rig limits; lip sync writes the mouth last.
+
+Use `?expression=smile` (file stem or exact display name) to apply on load. To check expressions alone and over a motion, with simulated lip sync:
+
+```bash
+OUT=tmp-verify/smile tools/verify_browser.sh --expression smile
+OUT=tmp-verify/smile-nod tools/verify_browser.sh --expression smile Action:2 1.0
+```
+
+`OUT` selects the screenshot folder, which is cleared of PNG files at the start of each run. Inspect both screenshots for the intended face and smooth transitions when switching/resetting in the WebUI.
 
 ## Loop motions (e.g. an emotion held while speaking)
 

@@ -11,7 +11,9 @@ tweak motions in motion-defs/<model>.py (the per-model definition file):
   - the definition file name is the model3.json file name without the
     extension (e.g. mao_pro.model3.json -> motion-defs/mao_pro.py)
   - see the bundled sample motion-defs/hiyori_pro_t11.py for the format
-    (define(curve, motion) returns (MOTIONS, MANIFEST))
+    (define(curve, motion) returns (MOTIONS, MANIFEST[, EXPRESSIONS]))
+  - optional expressions become expressions/<name>.exp3.json; a sidecar keeps
+    ownership of generated registrations, preserving the model's own expressions
   - definitions are per-model workspace artifacts and, like models/, are
     git-ignored (only the bundled sample is tracked); keep one deliberately
     with `git add -f`
@@ -45,7 +47,9 @@ import collections
 import glob
 import importlib.util
 import json
+import math
 import os
+import re
 import sys
 
 FPS = 30.0
@@ -174,24 +178,83 @@ def load_definition_file(stem):
     spec = importlib.util.spec_from_file_location(f"motion_defs_{stem}", def_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    motions, manifest = mod.define(curve, motion)
+    definitions = mod.define(curve, motion)
+    if len(definitions) not in (2, 3):
+        sys.exit(f"ERROR: define() must return (MOTIONS, MANIFEST[, EXPRESSIONS]) in {def_path}.")
+    motions, manifest = definitions[:2]
+    expressions = definitions[2] if len(definitions) == 3 else {}
     if set(n for n, *_ in manifest) != set(motions):
         sys.exit(f"ERROR: MANIFEST and MOTIONS keys do not match in {def_path}.")
-    return motions, manifest, def_path
+    return motions, manifest, expressions, def_path
 
 
 def load_definitions(stem):
-    motions, manifest, def_path = load_definition_file(stem)
+    motions, manifest, expressions, def_path = load_definition_file(stem)
     local_path = os.path.join(DEFS_DIR, f"{stem}.local.py")
     if os.path.exists(local_path):
-        local_motions, local_manifest, _ = load_definition_file(f"{stem}.local")
-        clash = sorted(set(motions) & set(local_motions))
-        if clash:
-            sys.exit(f"ERROR: main and local definitions share motion names: {', '.join(clash)}")
+        local_motions, local_manifest, local_expressions, _ = load_definition_file(f"{stem}.local")
+        for kind, main_defs, local_defs in (("motion", motions, local_motions),
+                                            ("expression", expressions, local_expressions)):
+            clash = sorted(set(main_defs) & set(local_defs))
+            if clash:
+                sys.exit(f"ERROR: main and local definitions share {kind} names: {', '.join(clash)}")
         motions = {**motions, **local_motions}
         manifest = list(manifest) + list(local_manifest)
-        print(f"local definitions: {local_path} ({len(local_motions)} motions)")
-    return motions, manifest, def_path
+        expressions = {**expressions, **local_expressions}
+        print(f"local definitions: {local_path} ({len(local_motions)} motions, {len(local_expressions)} expressions)")
+    return motions, manifest, expressions, def_path
+
+
+def build_expressions(definitions, available):
+    """Convert the optional third define() result to standard Cubism exp3 JSON."""
+    expressions, entries = {}, []
+    for name, definition in definitions.items():
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            sys.exit(f"ERROR: expression file name must use letters, digits, _ or -: {name!r}")
+        label = definition.get("label", name)
+        if not isinstance(label, str) or not label.strip() or any(e["Name"] == label for e in entries):
+            sys.exit(f"ERROR: expression labels must be nonempty and unique: {name}")
+        data = {"Type": "Live2D Expression"}
+        for key, field in (("fade_in", "FadeInTime"), ("fade_out", "FadeOutTime")):
+            value = definition.get(key, 0.4)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                sys.exit(f"ERROR: expression {name}: {key} must be a finite nonnegative number")
+            data[field] = value
+        params, seen = [], set()
+        for pid, value, blend in definition["parameters"]:
+            if not isinstance(pid, str) or not pid or pid in seen:
+                sys.exit(f"ERROR: expression {name}: invalid or duplicate parameter {pid!r}")
+            if available is not None and pid not in available:
+                sys.exit(f"ERROR: expression {name}: parameter {pid} does not exist in this model")
+            if blend not in ("Add", "Multiply", "Overwrite"):
+                sys.exit(f"ERROR: expression {name}:{pid}: unknown blend {blend!r}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                sys.exit(f"ERROR: expression {name}:{pid}: value must be a finite number")
+            params.append({"Id": pid, "Value": value, "Blend": blend})
+            seen.add(pid)
+        data["Parameters"] = params
+        file = f"expressions/{name}.exp3.json"
+        expressions[file] = data
+        entries.append({"Name": label, "File": file})
+    return expressions, entries
+
+
+def expression_registration(runtime, model3, entries):
+    """Own only exact registrations recorded by an earlier generation run.
+
+    A sidecar avoids adding private fields to model3.json or mistaking a model's
+    shipped expressions for our own, even if they live in expressions/."""
+    ledger = os.path.join(runtime, ".generated-expressions.json")
+    owned = json.load(open(ledger)) if os.path.exists(ledger) else []
+    existing = model3.get("FileReferences", {}).get("Expressions", [])
+    preserved = [entry for entry in existing if entry not in owned]
+    owned_files = {entry["File"] for entry in owned}
+    for entry in entries:
+        path = os.path.join(runtime, entry["File"])
+        if any(e["Name"] == entry["Name"] or os.path.normpath(e["File"]) == os.path.normpath(entry["File"])
+               for e in preserved) or (os.path.exists(path) and entry["File"] not in owned_files):
+            sys.exit(f"ERROR: expression conflicts with an unmanaged name or file: {entry['File']}")
+    return preserved + entries, ledger, owned + [entry for entry in entries if entry not in owned]
 
 
 def observed_reference(runtime, model3):
@@ -301,15 +364,18 @@ def main():
     model3_path = model3_files[0]
     stem = os.path.basename(model3_path).replace(".model3.json", "")
 
-    motions, manifest, def_path = load_definitions(stem)
+    motions, manifest, expression_defs, def_path = load_definitions(stem)
     print(f"definitions: {def_path} ({len(motions)} motions)")
 
     # Verify every referenced parameter exists in the model (when cdi3.json is present)
     cdi_files = glob.glob(os.path.join(runtime, "*.cdi3.json"))
     available = {p["Id"] for p in json.load(open(cdi_files[0]))["Parameters"]} if cdi_files else None
+    model3 = json.load(open(model3_path))
+    expressions, expression_entries = build_expressions(expression_defs, available)
+    registered_expressions, expression_ledger, expression_ownership = expression_registration(runtime, model3, expression_entries)
 
     # Camera recordings become motions too (parameters the model lacks are skipped)
-    rec_motions, rec_manifest = load_recordings(stem, runtime, json.load(open(model3_path)), available)
+    rec_motions, rec_manifest = load_recordings(stem, runtime, model3, available)
     clash = sorted(set(rec_motions) & set(motions))
     if clash:
         sys.exit(f"ERROR: recordings and definitions share motion names: {', '.join(clash)}")
@@ -327,6 +393,14 @@ def main():
                      f"(check the available parameters with tools/analyze_model.py):\n  "
                      + "\n  ".join(missing))
 
+    for file, data in expressions.items():
+        path = os.path.join(runtime, file)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False, allow_nan=False)
+            fh.write("\n")
+        print(f"wrote {path}: parameters={len(data['Parameters'])}")
+
     # file per motion, relative to the model folder (recordings in a subfolder)
     files = {name: f"motion/{'recorded/' if name in rec_motions else ''}{name}.motion3.json" for name in motions}
     for name, data in motions.items():
@@ -340,7 +414,6 @@ def main():
               f"segs={m['TotalSegmentCount']} pts={m['TotalPointCount']}")
 
     # Replace the whole Action group in model3.json (other groups untouched; idempotent)
-    model3 = json.load(open(model3_path))
     # setdefault so this also works on models that ship without any motions
     model3.setdefault("FileReferences", {}).setdefault("Motions", {})[GROUP] = [
         {
@@ -351,10 +424,17 @@ def main():
         }
         for name, disp, fin, fout in manifest
     ]
+    if registered_expressions or "Expressions" in model3["FileReferences"]:
+        model3["FileReferences"]["Expressions"] = registered_expressions
     with open(model3_path, "w") as fh:
         json.dump(model3, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     print(f"registered {len(manifest)} motions to {model3_path} [{GROUP}]")
+    if expression_entries or os.path.exists(expression_ledger):
+        with open(expression_ledger, "w") as fh:
+            json.dump(expression_ownership, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        print(f"registered {len(expression_entries)} generated expressions (model expressions preserved)")
 
 
 if __name__ == "__main__":

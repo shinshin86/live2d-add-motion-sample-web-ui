@@ -1,7 +1,8 @@
 """Motion definitions for Hiyori (hiyori_pro_t11).
 
 Bundled sample definition — use it as the reference when writing definitions
-for a new model. Format: define(curve, motion) returns (MOTIONS, MANIFEST).
+for a new model. Format: define(curve, motion) returns
+(MOTIONS, MANIFEST, EXPRESSIONS); the third item is optional.
 
 Keyframe values stay within the ranges observed in the model's existing
 motions (see tools/analyze_model.py) and every curve starts from and
@@ -146,4 +147,38 @@ def define(curve, motion):
         ("hiyori_shy", "照れる", 0.5, 0.5),
         ("hiyori_shakehead", "首ふり", 0.4, 0.5),
     ]
-    return MOTIONS, MANIFEST
+    # Expressions stay on top of any motion until cleared. Keep MouthOpenY
+    # free for speech; Multiply eye openness preserves blinking.
+    EXPRESSIONS = {
+        "smile": {
+            "label": "笑顔", "fade_in": 0.4, "fade_out": 0.4,
+            "parameters": [
+                ("ParamEyeLOpen", 0, "Multiply"), ("ParamEyeROpen", 0, "Multiply"),
+                ("ParamEyeLSmile", 1, "Overwrite"), ("ParamEyeRSmile", 1, "Overwrite"),
+                ("ParamBrowLY", 0.3, "Add"), ("ParamBrowRY", 0.3, "Add"),
+                ("ParamMouthForm", 1, "Overwrite"), ("ParamCheek", 0.5, "Overwrite"),
+            ],
+        },
+        "shy": {
+            "label": "照れ", "fade_in": 0.5, "fade_out": 0.5,
+            "parameters": [
+                ("ParamCheek", 1, "Overwrite"),
+                ("ParamEyeLOpen", 0.65, "Multiply"), ("ParamEyeROpen", 0.65, "Multiply"),
+                ("ParamBrowLY", -0.2, "Add"), ("ParamBrowRY", -0.2, "Add"),
+                ("ParamBrowLForm", -0.6, "Overwrite"), ("ParamBrowRForm", -0.6, "Overwrite"),
+                ("ParamMouthForm", 0.3, "Overwrite"),
+            ],
+        },
+        "angry": {
+            "label": "怒り", "fade_in": 0.3, "fade_out": 0.4,
+            "parameters": [
+                ("ParamBrowLAngle", -0.8, "Overwrite"), ("ParamBrowRAngle", -0.8, "Overwrite"),
+                ("ParamBrowLY", -0.4, "Overwrite"), ("ParamBrowRY", -0.4, "Overwrite"),
+                ("ParamBrowLX", -0.4, "Overwrite"), ("ParamBrowRX", -0.4, "Overwrite"),
+                ("ParamEyeLOpen", 0.75, "Multiply"), ("ParamEyeROpen", 0.75, "Multiply"),
+                ("ParamBrowLForm", -0.7, "Overwrite"), ("ParamBrowRForm", -0.7, "Overwrite"),
+                ("ParamMouthForm", -1, "Overwrite"),
+            ],
+        },
+    }
+    return MOTIONS, MANIFEST, EXPRESSIONS
