@@ -94,6 +94,11 @@ export function relayMessage(input) {
         if (value === null) return null;
         face[key] = value;
       }
+      if ("bodyAngleY" in data.face) {
+        const value = finite(/** @type {Record<string, unknown>} */ (data.face).bodyAngleY, -6, 6);
+        if (value === null) return null;
+        face.bodyAngleY = value;
+      }
     }
     return { type: "pose", face, weight: finite(data.weight, 0, 1) ?? 0, mouth: finite(data.mouth, 0, 1) };
   }

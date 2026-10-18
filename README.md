@@ -230,6 +230,16 @@ Reload the page to display the saved motion.
 
 The recording stores what your face adds to each parameter, so the idle or emotion motion that happened to be playing is not baked in. The generator puts it back on the model's base pose, keeps it within the observed value ranges, reduces it to keyframes, and eases in from and out to the base pose (a loop instead blends its end into its start and leaves out the lip-sync parameters). The result passes `validate_motions.py` as is.
 
+### Upper-body tracking
+
+With the camera running, enable "上半身も動かす" to follow your shoulders and torso. It starts OFF after every page load. Keep both shoulders and hips in view; the first confident pose becomes neutral. "正面をリセット" recalibrates both face and body. Sensitivity, smoothing and mirroring also apply to the body. Turn it off to return to the existing face-driven body movement.
+
+Shoulder/hip geometry drives `ParamBodyAngleX/Y/Z`, limited to ±8/±6/±8 degrees. While enabled it replaces the body movement derived from head rotation; face tracking continues independently. Low-confidence or lost poses fade back to neutral. Arms and model-specific shoulder controls are omitted because the installed rigs do not provide a consistently verified natural continuous mapping. Body tracking needs the hips in view even when only the upper half of the avatar is shown.
+
+Pose Landmarker Lite is bundled locally with its [license and checksum](vendor/mediapipe/README.md). The runtime stays pinned to 0.10.21. Pose inference uses a separate CPU Worker at up to 10 fps, with one bitmap in flight and slower sampling when inference is expensive. It never holds up face-frame delivery. Camera images and body landmarks stay in the browser; only the resulting angles join recordings and the existing local OBS relay. Update/reload both control and streaming pages. During recording the body toggle is disabled to keep the parameter set consistent; old recordings remain unchanged.
+
+For checks without a camera, `?fakebody=1&bodytime=1` holds a synthetic body pose; use `bodytime=-1` for the opposite pose, omit it for movement, and add `&body=0` to compare with tracking disabled. Combine with `&fakeface=1` and the existing recording hook to check both. Synthetic results do not establish real-camera accuracy or performance; check neutral calibration, loss recovery and face responsiveness with your camera.
+
 ### Editing a saved recording
 
 In "保存したモーション", press the recording's "編集" button. Choose the start and end positions in the original recording (seconds), speed (0.25–4×), smoothing (0–1), and whether to loop. "試再生" previews these settings without saving; it runs only on the control page and temporarily leaves out live camera and lip-sync input. "停止" stops the preview. "編集を保存" saves and regenerates the motion; press "再読み込みして表示" to use it from the list. Close the editor to discard unsaved settings. "元の設定" restores the full source duration, normal speed, no smoothing and the original loop choice; save to apply that reset.
@@ -305,7 +315,7 @@ index.html                  WebUI (static HTML, no build step); resolves the mod
 stream.html                 Streaming page (avatar only, for OBS)
 web/                        WebUI modules (plain JavaScript with JSDoc types; no build step):
                             camera tracking, recording, streaming relay, loop playback
-vendor/mediapipe/           MediaPipe face model (Apache-2.0) used by the camera tracking
+vendor/mediapipe/           MediaPipe face/pose models and licenses used by camera tracking
 tools/
   serve.py                  Local server: static files, relay to stream.html, saving recordings
   setup_model.py            Place a model (zip/folder → models/) + generate model.config.json
@@ -333,4 +343,4 @@ The following are NOT covered by MIT and are subject to their own licenses:
 - **Live2D sample model "Hiyori"**: covered by the [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html); redistribution is prohibited, so it is not included here. Download it yourself from the [official distribution page](https://www.live2d.com/en/learn/sample/momose-hiyori/). The copyright of the model shown in the README screenshot belongs to Live2D Inc.
 - **Live2D Cubism Core** (`live2dcubismcore.min.js`): loaded by the WebUI from the official Live2D CDN ([Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)). This repository does not redistribute the Core itself. If you release a product embedding the SDK as a business, a [publication license](https://www.live2d.com/en/sdk/license/) may be required depending on your business scale.
 - **PixiJS / pixi-live2d-display**: loaded from CDNs (both MIT licensed).
-- **MediaPipe** (`@mediapipe/tasks-vision` and the Face Landmarker model): Apache License 2.0. The runtime is loaded from jsDelivr; the model and its license are in `vendor/mediapipe/`.
+- **MediaPipe** (`@mediapipe/tasks-vision`, Face Landmarker and Pose Landmarker Lite): Apache License 2.0. The runtime is loaded from jsDelivr; the models and licenses are in `vendor/mediapipe/`.

@@ -305,7 +305,7 @@
     </div>
     <div class="tabpanel" id="tabpanel-camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
     <div id="cameraPanel" class="tool-card">
-      <div class="card-title">カメラ<small>顔の動きでアバターを動かします</small></div>
+      <div class="card-title">カメラ<small>顔や体の動きでアバターを動かします</small></div>
       <div class="choices">
         <button id="cameraToggle" class="action">● カメラ開始</button>
         <button id="calibrate" class="action" disabled>正面をリセット</button>
@@ -316,6 +316,8 @@
       <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="3" step="0.05" value="1.5"></label>
       <label class="slider">なめらかさ <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.35"></label>
       <label class="check"><input type="checkbox" id="mirror" checked> 鏡のように動かす(左右反転)</label>
+      <label class="check"><input type="checkbox" id="bodyTracking"> 上半身も動かす</label>
+      <div id="bodyNote" class="note">上半身はOFFです。ONにする場合は肩と腰を映してください。腕は動かしません。</div>
       <div id="cameraNote" class="note">カメラ映像はブラウザの中だけで処理され、外部には送信されません</div>
       <div id="recordBox" hidden>
         <div class="section-title">演技を録画してモーションにする</div>
@@ -335,7 +337,7 @@
             <button id="recordDiscard" class="action">破棄</button>
           </div>
         </div>
-        <div id="recordNote" class="note">顔の動きを最長60秒録画できます</div>
+        <div id="recordNote" class="note">動きを最長60秒録画できます</div>
         <button id="recordReload" class="action" hidden>再読み込みして表示</button>
       </div>
     </div>
@@ -371,6 +373,9 @@
     import "./web/verify-hold.js";
     import { startBackgroundClock } from "./web/background-clock.js";
     import { CameraCapture } from "./web/camera.js";
+    import { BodyCapture } from "./web/body-camera.js";
+    import { BodyPose, combineBody } from "./web/body-tracking.js";
+    import { startFakeBody } from "./web/fake-body.js";
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
     import { createMotionPlayer } from "./web/motion-player.js";
@@ -690,6 +695,20 @@
       let cameraState = "stopped";
       let calibrated = false;
       let stopFake = null;
+      let stopFakeBody = null;
+      const bodyPose = new BodyPose();
+      const bodyToggle = document.getElementById("bodyTracking");
+      const bodyNote = document.getElementById("bodyNote");
+      let bodyState = "off";
+      const bodyCapture = new BodyCapture(preview, (result, now, aspect) => bodyPose.update(result, now, aspect), state => {
+        bodyState = state;
+        if (state === "off" || state === "error") bodyPose.reset();
+      });
+      function updateBodyCapture() {
+        if (bodyToggle.checked && cameraState === "running" && !stopFakeBody) bodyCapture.start();
+        else bodyCapture.stop();
+      }
+      bodyToggle.onchange = () => { bodyPose.reset(); updateBodyCapture(); };
       const onFace = (result, now) => {
         facePose.update(result, now);
         // the first face seen becomes the neutral, front-facing face
@@ -709,6 +728,7 @@
           facePose.reset();
           calibrated = false;
         }
+        updateBodyCapture();
       });
       cameraToggle.onclick = () => {
         if (cameraState === "starting" || cameraState === "running") camera.stop();
@@ -716,6 +736,7 @@
       };
       calibrateButton.onclick = () => {
         if (facePose.calibrate(performance.now())) cameraNote.textContent = "今の顔の向きを正面にしました";
+        bodyPose.calibrate(performance.now());
       };
       mirror.onchange = () => preview.classList.toggle("unmirrored", !mirror.checked);
 
@@ -806,7 +827,7 @@
       const recordReload = document.getElementById("recordReload");
       recordReload.onclick = () => {
         const url = new URL(location.href);
-        for (const key of ["record", "recordloop", "recordname", "camera", "fakeface", "play", "freeze", "hold"]) url.searchParams.delete(key);
+        for (const key of ["record", "recordloop", "recordname", "camera", "fakeface", "fakebody", "bodytime", "body", "play", "freeze", "hold"]) url.searchParams.delete(key);
         url.searchParams.set("tab", "motion");
         location.href = url.href;
       };
@@ -820,6 +841,7 @@
         return recordingEditor?.blocked() || null;
       }, (text) => { actionNotice = true; status.textContent = text; });
       function stopRecording() {
+        bodyToggle.disabled = false;
         const now = new Date();
         const rec = recorder.stop({ id: recordingId(now), label: "", loop: false, recordedAt: recordingTimestamp(now) });
         recordToggle.textContent = "● 録画開始";
@@ -851,6 +873,7 @@
         pendingRecording = null;
         recordSave.hidden = true;
         recorder.start(performance.now());
+        bodyToggle.disabled = true;
         recordToggle.classList.add("on");
       };
       async function savePendingRecording() {
@@ -991,7 +1014,7 @@
       startBackgroundClock((now) => {
         const dt = (now - lastFrame) / 1000;
         lastFrame = now;
-        const tracking = cameraState === "running" || stopFake;
+        const tracking = cameraState === "running" || stopFake || stopFakeBody;
         let face = null;
         let weight = 0;
         if (tracking || facePose.weight > 0) {
@@ -1003,6 +1026,17 @@
           if (cameraState === "running") {
             cameraNote.textContent = sampled.tracking ? CAMERA_NOTES.running : "顔が見つかりません(カメラの正面に顔を入れてください)";
           }
+        }
+        if (bodyToggle.checked) {
+          const body = bodyPose.sample(now, dt, { mirror: mirror.checked, sensitivity: Number(sensitivity.value), smoothing: Number(smoothing.value) });
+          const combined = combineBody(face, weight, body);
+          face = combined.params; weight = combined.weight;
+          bodyNote.textContent = bodyState === "error" ? "上半身の検出を開始できません。OFFにしてからもう一度ONにしてください。顔の検出は続いています。" :
+            bodyState === "loading" ? "上半身の検出を準備しています…" : body.tracking ? "上半身をトラッキング中" : "肩と腰が見えるようにカメラに入ってください";
+          bodyNote.classList.toggle("warn", bodyState === "error");
+        } else {
+          bodyNote.textContent = "上半身はOFFです。ONにする場合は肩と腰を映してください。腕は動かしません。";
+          bodyNote.classList.remove("warn");
         }
         liveFace = weight > 0 ? face : null;
         liveWeight = weight;
@@ -1166,7 +1200,12 @@
         else expressionNote.textContent = `表情が見つかりません: ${expression}`;
       }
       if (params.get("tab")) selectTab(params.get("tab") === "camera" ? "camera" : "motion");
-      else if (params.get("camera") || params.get("fakeface") || params.get("record")) selectTab("camera");
+      else if (params.get("camera") || params.get("fakeface") || params.get("fakebody") || params.get("record")) selectTab("camera");
+      if (params.get("fakebody")) {
+        bodyToggle.checked = params.get("body") !== "0";
+        const time = params.get("bodytime");
+        stopFakeBody = startFakeBody((result, now) => bodyPose.update(result, now), time !== null && Number.isFinite(Number(time)) ? Number(time) : null);
+      }
       // &fakeface=1 drives the face with synthetic tracking results (no camera)
       if (params.get("fakeface")) {
         stopFake = startFakeFace(onFace);

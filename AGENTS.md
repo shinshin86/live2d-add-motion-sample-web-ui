@@ -50,7 +50,7 @@ web/                       WebUI modules: plain JavaScript with JSDoc types (`//
                            no build step. tracking*.js / camera.js / live2d-face.js: camera
                            face tracking; recorder.js: recording; relay.js / stream.js:
                            streaming; motion-player.js: loop playback
-vendor/mediapipe/          MediaPipe face model + license (the runtime comes from jsDelivr,
+vendor/mediapipe/          MediaPipe face/pose models + licenses (runtime comes from jsDelivr,
                            pinned to 0.10.21; do not upgrade without checking for telemetry)
 tools/
   serve.py                 Local server: static files, relay to stream.html, saving
@@ -295,6 +295,39 @@ force-reload pages after updates. `?editrecording=<ID>` opens the editor on load
 Always test on a copy of an existing source, remove that copy afterward, and
 verify the user's original recordings are byte-for-byte unchanged.
 
+## Upper-body tracking
+
+The camera tab's body toggle starts OFF on every load. `web/body-camera.js`
+shares the current video with a separate CPU Pose Landmarker Worker; it never
+opens a second camera or waits in the face capture path. `body-worker.js` uses
+the same pinned 0.10.21 runtime and local `pose_landmarker_lite.task`, no masks,
+at most 10 fps, one bitmap in flight, with extra backoff after slow inference.
+Failure disables only body inference; the face Worker continues. Stop/disable
+terminates the body Worker and late bitmaps are closed.
+
+`body-tracking.js` uses shoulders 11/12 and hips 23/24 in normalized/world
+coordinates. Require visibility >=0.6 and finite nondegenerate geometry. The
+pinned JavaScript API omits presence; check it only when supplied. Calibrate on
+the first valid pose and with the existing reset button; mirror/sensitivity/
+smoothing apply. Lost poses expire after 500 ms, then fade to neutral.
+Body angles X/Y/Z cap at 8/6/8 degrees and replace face-derived body angles while
+enabled. Arm and rig-specific shoulder controls are omitted: their continuous
+natural mapping has not been verified across the installed rigs.
+
+Combined face/body parameters keep independent loss weights and enter the same
+renderer, recorder and relay. Optional bodyAngleY maps to ParamBodyAngleY with
+the pitch sign reversed, and is omitted when body tracking is off. Old messages
+and recordings need no new fields/version; new relay readers accept either.
+Reload both pages after updates. Lock the body toggle during recording so every
+sample has the same parameter IDs. Never transmit images or raw pose landmarks.
+
+`?fakebody=1` supplies synthetic landmarks through the same math. `bodytime=N`
+holds a synthetic time; body=0 disables its contribution. Can combine fakeface
+and recording hooks. Verify OFF and opposite poses on both models, inspect the
+resulting body XYZ recording curves, and validate both models. Real-camera
+accuracy, signs and face responsiveness still need a manual check. The model's
+source, hash, license and pinned-runtime privacy notes are in vendor/mediapipe/.
+
 ## Streaming updates
 
 Face sampling, recording and lip-sync levels run on `web/background-clock.js`
@@ -364,6 +397,7 @@ the control page after updating these endpoints.
 | `&camera=1` | Start the camera on load |
 | `&preview=0` | Start with the camera image hidden (tracking continues) |
 | `&fakeface=1` | Drive the face with synthetic tracking results (no camera) |
+| `&fakebody=1` | Drive body angles from synthetic shoulder/hip landmarks; bodytime=N fixes a pose, body=0 disables it |
 | `&record=N` | Record N seconds of the face and save it (`&recordloop=1`: as a loop, `&recordname=<name>`: motion name); with `&fakeface=1` this tests the recording path headless |
 | `stream.html?bg=green&status=1` | Streaming page: background (transparent by default, `green`, `blue`, `<hex>`); `status=1` shows the relay state |
 

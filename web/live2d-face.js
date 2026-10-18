@@ -17,7 +17,7 @@
 /** @type {Record<string, string[]>} */
 const ADD = {
   angleX: ["ParamAngleX"], angleY: ["ParamAngleY"], angleZ: ["ParamAngleZ"],
-  bodyAngleX: ["ParamBodyAngleX"], bodyAngleZ: ["ParamBodyAngleZ"],
+  bodyAngleX: ["ParamBodyAngleX"], bodyAngleY: ["ParamBodyAngleY"], bodyAngleZ: ["ParamBodyAngleZ"],
   browY: ["ParamBrowLY", "ParamBrowRY"], mouthForm: ["ParamMouthForm"],
   eyeSmile: ["ParamEyeLSmile", "ParamEyeRSmile"],
 };
@@ -32,7 +32,7 @@ const REPLACE = { gazeX: ["ParamEyeBallX"], gazeY: ["ParamEyeBallY"], mouthOpen:
  */
 
 /** Face parameters whose sign flips for Live2D. */
-const FLIPPED = new Set(["angleY", "angleZ", "bodyAngleZ"]);
+const FLIPPED = new Set(["angleY", "angleZ", "bodyAngleY", "bodyAngleZ"]);
 
 /**
  * What the face contributes to each Live2D parameter (also what a recording stores).
@@ -46,6 +46,7 @@ export function faceToLive2D(params) {
     [["add", ADD], ["multiply", MULTIPLY], ["replace", REPLACE]])) {
     for (const [key, ids] of Object.entries(table)) {
       const value = FLIPPED.has(key) ? -params[key] : params[key];
+      if (!Number.isFinite(value)) continue; // optional body fields keep old recordings compatible
       for (const id of ids) out.push({ id, mode, value });
     }
   }

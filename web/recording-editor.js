@@ -184,7 +184,7 @@ export function attachRecordingEditor(options) {
   button("editClose").onclick = () => { options.stop(); root.hidden = true; dirty = false; source = null; };
   button("editReload").onclick = () => {
     const url = new URL(location.href);
-    for (const key of ["editrecording", "record", "recordloop", "recordname", "camera", "fakeface", "play", "freeze", "hold"]) url.searchParams.delete(key);
+    for (const key of ["editrecording", "record", "recordloop", "recordname", "camera", "fakeface", "fakebody", "bodytime", "body", "play", "freeze", "hold"]) url.searchParams.delete(key);
     url.searchParams.set("tab", "motion"); url.hash = "recordedActions";
     location.href = url.href;
   };

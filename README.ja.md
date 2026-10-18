@@ -236,6 +236,16 @@ python3 tools/validate_motions.py
 
 録画には各パラメータに対する顔の動きの分だけを記録するので、録画中にたまたま再生されていたアイドルや感情モーションは含まれません。generator がモデルの基本姿勢に重ね直し、既存モーションの値域に収め、キーフレームに間引いたうえで、最初と最後を基本姿勢へなめらかにつなぎます。ループの場合は、終わりを始まりへなめらかにつなぎ、リップシンク用のパラメータを除きます。こうして作ったモーションは、そのまま `validate_motions.py` を通ります。
 
+### 上半身の動きを反映する
+
+カメラを開始して「上半身も動かす」をONにすると、肩と胴体の向きからアバターの体を動かします。ページを開いた直後はOFFです。両肩と腰が映る位置に座ってください。最初に検出できた姿勢を正面とし、「正面をリセット」で顔と体を一緒に調整し直せます。感度・なめらかさ・左右反転も共通です。OFFにすると、従来の顔の向きに連動する体の動きへ戻ります。
+
+肩と腰の位置から `ParamBodyAngleX/Y/Z` を動かし、変化量はそれぞれ±8・±6・±8度に抑えます。ONの間は顔の向きから作る体の動きを置き換え、顔の検出は続けます。検出の信頼度が低い場合や体を見失った場合は、徐々に中立へ戻します。腕とモデル固有の肩パラメータは、モデル間で自然に連続して動く対応を確認できていないため使いません。アバターを上半身だけ表示している場合も、カメラには腰まで入れる必要があります。
+
+Pose Landmarker Liteのモデルは[ライセンス・チェックサム](vendor/mediapipe/README.md)とともに同梱し、ランタイムは0.10.21のままです。上半身の検出は顔とは別のCPU Workerで最大10fpsに抑え、処理に時間がかかる場合は間隔を広げます。処理中の画像は1枚だけにし、顔の画像転送は待たせません。映像や体のランドマークはブラウザ内にとどめ、計算した角度だけを録画やローカルのOBS中継に含めます。更新後は操作ページと配信ページの両方を再読み込みしてください。録画中は上半身のON/OFFを変更できません。既存の録画は書き換えません。
+
+カメラなしで確認する場合は `?fakebody=1&bodytime=1` で疑似姿勢を固定できます。`bodytime=-1` なら反対の姿勢、省略すれば動き続けます。`&body=0` でOFF時と比較でき、`&fakeface=1` や既存の録画クエリとも併用できます。疑似姿勢だけでは実カメラの精度や処理速度は確認できないため、実際のカメラでは正面の調整、見失った後の復帰、顔の追従を確認してください。
+
 ### 保存した録画を編集する
 
 「保存したモーション」の「編集」を押すと、元の録画内の開始・終了位置(秒)、速度(0.25〜4倍)、なめらかさ(0〜1)、ループの有無を変更できます。「試再生」は保存せずに確認するためのボタンです。操作ページだけで再生し、その間はカメラとリップシンクの入力を反映しません。「停止」で試再生を止められます。「編集を保存」で生成・検証したあと、「再読み込みして表示」を押すと一覧から再生できます。未保存の設定は編集を閉じると破棄されます。
@@ -315,7 +325,7 @@ index.html                  WebUI(静的HTML、ビルド不要)。model.config.j
 stream.html                 配信用ページ(アバターのみ。OBS 向け)
 web/                        WebUI のモジュール(JSDoc で型を付けた JavaScript。ビルド不要):
                             カメラトラッキング、録画、配信の中継、ループ再生
-vendor/mediapipe/           カメラトラッキングで使う MediaPipe の顔検出モデル(Apache-2.0)
+vendor/mediapipe/           カメラトラッキングで使う MediaPipe の顔・姿勢検出モデルとライセンス
 tools/
   serve.py                  ローカルサーバー(静的ファイルの配信、stream.html への中継、録画の保存)
   setup_model.py            モデル配置(zip/フォルダ → models/)+ model.config.json 生成
@@ -340,4 +350,4 @@ local-assets/ , models/     [git管理外] Live2Dモデルデータ(ライセン
 - **Live2Dサンプルモデル「ひより」**: [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_jp.html) の対象で再配布不可のため非同梱です。各自[公式配布ページ](https://www.live2d.com/learn/sample/momose-hiyori/)から入手してください。READMEのスクリーンショットに含まれるモデルの著作権はLive2D社に帰属します。
 - **Live2D Cubism Core**(`live2dcubismcore.min.js`): WebUIがLive2D公式CDNから読み込みます([Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_jp.html))。本リポジトリはCore自体を再配布していません。組み込んだ製品を事業として公開する場合は、事業規模により[出版許諾契約](https://www.live2d.com/sdk/license/)が必要になることがあります。
 - **PixiJS / pixi-live2d-display**: CDNから読み込み(いずれもMITライセンス)。
-- **MediaPipe**(`@mediapipe/tasks-vision` と Face Landmarker のモデル): Apache License 2.0。本体は jsDelivr から読み込み、モデルとライセンス文は `vendor/mediapipe/` に同梱しています。
+- **MediaPipe**(`@mediapipe/tasks-vision`、Face Landmarker、Pose Landmarker Lite): Apache License 2.0。本体は jsDelivr から読み込み、モデルとライセンス文は `vendor/mediapipe/` に同梱しています。
