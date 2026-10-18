@@ -9,6 +9,8 @@ motions (see tools/analyze_model.py) and every curve starts from and
 returns to the base pose.
 """
 
+SHARED_MOTIONS = {"gestures": {"nod": {}, "shakehead": {}, "surprised": {}}}
+
 
 def define(curve, motion):
     MOTIONS = {}

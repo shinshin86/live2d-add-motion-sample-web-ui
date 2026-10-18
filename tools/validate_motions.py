@@ -20,9 +20,10 @@ Checks:
  9. registered exp3 expressions: schema, blends, finite values, parameter IDs,
     physics outputs and values applied to the base pose within safe ranges
 
-For models that ship without any motions, checks 4 and 5 are skipped with a
-warning. Visual verification in the browser is then the only quality gate,
-so perform it extra carefully.
+Parameters absent from shipped motions use conservative conventional ranges
+when their standard ID is known. Custom IDs need observed ranges; without any
+reference motions they retain the legacy warning-only path. Verify those rigs
+extra carefully in a browser.
 
 Usage: python3 tools/validate_motions.py [runtime dir]
 (without an argument, the model registered in model.config.json is used)
@@ -227,7 +228,11 @@ def main():
     # so search recursively instead of assuming a directory name
     all_files = set(os.path.normpath(f) for f in
                     glob.glob(os.path.join(RUNTIME, "**", "*.motion3.json"), recursive=True))
-    existing = sorted(all_files - set(os.path.normpath(f) for f in new_files))
+    shared_ledger = os.path.join(RUNTIME, ".generated-shared-motions.json")
+    shared_files = json.load(open(shared_ledger)) if os.path.exists(shared_ledger) else []
+    generated = {os.path.normpath(f) for f in new_files}
+    generated.update(os.path.normpath(os.path.join(RUNTIME, file)) for file in shared_files)
+    existing = sorted(all_files - generated)
 
     # Observe safe value ranges and the base pose (majority first-frame value)
     # from the pre-existing motions
@@ -244,9 +249,8 @@ def main():
             first_vals[c["Id"]][round(pts[0][1], 3)] += 1
     base_pose = {pid: cnt.most_common(1)[0][0] for pid, cnt in first_vals.items()}
 
-    has_reference = bool(existing)
-    if not has_reference:
-        print("WARN: this model has no pre-existing motions; skipping the range and base-pose checks.")
+    if not existing:
+        print("WARN: this model has no pre-existing motions; using conservative ranges/base poses for standard IDs.")
         print("WARN: be sure to verify visually in the browser.")
 
     errors = validate_expressions(RUNTIME, model3, base_pose, safe)
@@ -282,21 +286,24 @@ def main():
                     errors.append(f"{name}:{pid}: loop seam jerks: end slope {s_end:.3f}/s != start slope {s_start:.3f}/s")
                 if pid in lipsync_ids:
                     warnings.append(f"{name}:{pid}: loop Action animates a LipSync parameter; it will fight the player's lip sync while speaking")
-            if c["Target"] != "Parameter" or not has_reference:
+            if c["Target"] != "Parameter":
                 continue
-            if pid not in safe:
-                errors.append(f"{name}:{pid}: parameter never used by the existing motions (check its range; keep only if deliberate)")
-            else:
-                lo, hi = safe[pid]
-                for t, v in pts:
-                    if not (lo - EPS <= v <= hi + EPS):
-                        errors.append(f"{name}:{pid}: value {v} (t={t}) outside the observed range [{lo},{hi}]")
-                bulge = [v for v in sampled_values(c) if not (lo - 1e-3 <= v <= hi + 1e-3)]
-                if bulge:
-                    errors.append(f"{name}:{pid}: the curve between keys reaches {max(bulge, key=abs):.3f}, outside the observed range [{lo},{hi}]")
+            reference = (base_pose.get(pid, 0), safe[pid]) if pid in safe else conventional_reference(pid)
+            if reference is None:
+                if existing:
+                    errors.append(f"{name}:{pid}: no observed or conventional range; add a reference motion")
+                else:
+                    warnings.append(f"{name}:{pid}: custom parameter has no reference; range/base pose not checked")
+                continue
+            base, (lo, hi) = reference
+            for t, v in pts:
+                if not (lo - EPS <= v <= hi + EPS):
+                    errors.append(f"{name}:{pid}: value {v} (t={t}) outside the safe range [{lo},{hi}]")
+            bulge = [v for v in sampled_values(c) if not (lo - 1e-3 <= v <= hi + 1e-3)]
+            if bulge:
+                errors.append(f"{name}:{pid}: the curve between keys reaches {max(bulge, key=abs):.3f}, outside the safe range [{lo},{hi}]")
             if loop:
                 continue  # a loop may idle anywhere; its seam is checked above
-            base = base_pose.get(pid, 0)
             if abs(pts[0][1] - base) > EPS:
                 errors.append(f"{name}:{pid}: first value {pts[0][1]} != base pose {base}")
             if abs(pts[-1][1] - base) > EPS:

@@ -70,6 +70,9 @@ def main():
             os.path.normpath(os.path.join(RUNTIME, e["File"]))
             for e in m3["FileReferences"]["Motions"].get("Action", [])
         }
+        ledger = os.path.join(RUNTIME, ".generated-shared-motions.json")
+        if os.path.exists(ledger):
+            generated.update(os.path.normpath(os.path.join(RUNTIME, file)) for file in json.load(open(ledger)))
         motions = [f for f in motions if os.path.normpath(f) not in generated]
 
     names = {}
