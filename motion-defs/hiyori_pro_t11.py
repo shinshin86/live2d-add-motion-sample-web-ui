@@ -169,15 +169,21 @@ def define(curve, motion):
                 ("ParamMouthForm", 0.3, "Overwrite"),
             ],
         },
-        "angry": {
-            "label": "怒り", "fade_in": 0.3, "fade_out": 0.4,
+        # The bangs hide the brows and the existing motions have no angry
+        # brows, so this model cannot express anger clearly. Use a sleepy face.
+        "sleepy": {
+            "label": "ねむい", "fade_in": 0.3, "fade_out": 0.4,
             "parameters": [
-                ("ParamBrowLAngle", -0.8, "Overwrite"), ("ParamBrowRAngle", -0.8, "Overwrite"),
+                ("ParamBrowLAngle", -1, "Overwrite"), ("ParamBrowRAngle", -1, "Overwrite"),
                 ("ParamBrowLY", -0.4, "Overwrite"), ("ParamBrowRY", -0.4, "Overwrite"),
                 ("ParamBrowLX", -0.4, "Overwrite"), ("ParamBrowRX", -0.4, "Overwrite"),
-                ("ParamEyeLOpen", 0.75, "Multiply"), ("ParamEyeROpen", 0.75, "Multiply"),
-                ("ParamBrowLForm", -0.7, "Overwrite"), ("ParamBrowRForm", -0.7, "Overwrite"),
-                ("ParamMouthForm", -1, "Overwrite"),
+                ("ParamEyeLOpen", 0.5, "Multiply"), ("ParamEyeROpen", 0.5, "Multiply"),
+                ("ParamEyeLSmile", 0, "Overwrite"), ("ParamEyeRSmile", 0, "Overwrite"),
+                ("ParamBrowLForm", -1, "Overwrite"), ("ParamBrowRForm", -1, "Overwrite"),
+                ("ParamCheek", 0, "Overwrite"),
+                # MouthForm=-1 leaves a small "o" even with a closed mouth;
+                # 0 gives a closed, downturned mouth instead.
+                ("ParamMouthForm", 0, "Overwrite"),
             ],
         },
     }

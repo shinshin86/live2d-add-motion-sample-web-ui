@@ -102,7 +102,7 @@ Design rules (value ranges, returning to the base pose, avoiding physics-driven 
 
 ## Expressions
 
-An expression (`.exp3.json`) holds parameter changes independently of the motion. The bundled Hiyori definitions include smile, shy and angry expressions. To define your own, return an optional third dictionary from `define(curve, motion)`:
+An expression (`.exp3.json`) holds parameter changes independently of the motion. The bundled Hiyori definitions include smile, shy and sleepy expressions ("笑顔", "照れ", "ねむい"). Its brows are hidden by bangs and the existing motions provide no angry brow pose, so the sample uses a sleepy face instead. To define your own, return an optional third dictionary from `define(curve, motion)`:
 
 ```python
 EXPRESSIONS = {

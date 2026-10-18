@@ -145,6 +145,12 @@ motions use them. Hiyori examples:
 - Yaw (AngleX) reads subtly; a head shake needs ±20 or more to be legible.
 - Idle motions park the arms (ArmLA/RA=-10), so moving the arms in an action
   easily breaks continuity with the surrounding idle.
+- Hiyori's brows are hidden by bangs and its existing motions provide no angry
+  brow pose. The third sample expression is `sleepy` ("ねむい"), not anger:
+  EyeOpen multiplied by 0.5, low brows and MouthForm=0. Clear EyeSmile and Cheek
+  to avoid inheriting a smile or blush. MouthForm=-1 leaves a small "o" even with
+  MouthOpenY=0. Confirm brow angles and forms together in actual renders; do not
+  copy another model's signs or insist on an expression the rig cannot convey.
 
 For a new model, rediscover this kind of quirk from how its existing motion
 curves use the parameters.
