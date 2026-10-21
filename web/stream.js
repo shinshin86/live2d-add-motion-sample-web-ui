@@ -6,6 +6,7 @@
 import "./verify-hold.js";
 import { attachStreamView } from "./stream-view.js";
 import { attachFaceDriver } from "./live2d-face.js";
+import { loadBodyLimits } from "./body-model.js";
 import { createMotionPlayer } from "./motion-player.js";
 import { attachExpressions, expressionId } from "./expressions.js";
 import { receiveRelay } from "./relay.js";
@@ -45,7 +46,8 @@ async function main() {
   attachStreamView(app, model, modelPath, params);
 
   const player = createMotionPlayer(model);
-  const face = attachFaceDriver(model);
+  const bodyBounds = await loadBodyLimits(model, modelPath);
+  const face = attachFaceDriver(model, bodyBounds.ranges);
   const expressions = attachExpressions(model);
   /** @type {{ face: import("./tracking.js").FaceParams | null, weight: number, mouth: number | null, received: number }} */
   const pose = { face: null, weight: 0, mouth: null, received: -Infinity };

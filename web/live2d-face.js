@@ -55,9 +55,10 @@ export function faceToLive2D(params) {
 
 /**
  * @param {any} model a pixi-live2d-display Live2DModel (Cubism 4)
+ * @param {Record<string, number[]>} [bodyRanges] observed absolute body bounds
  * @returns {{ set: (params: FaceParams | null, weight: number) => void }}
  */
-export function attachFaceDriver(model) {
+export function attachFaceDriver(model, bodyRanges = {}) {
   const internal = model.internalModel;
   const core = internal.coreModel;
   const autoBlink = internal.eyeBlink;
@@ -67,10 +68,10 @@ export function attachFaceDriver(model) {
 
   /** @param {string} id */
   const index = (id) => core.getParameterIndex(id);
-  /** @param {number} i @param {(value: number) => number} change */
-  const write = (i, change) => {
-    const min = core.getParameterMinimumValue(i);
-    const max = core.getParameterMaximumValue(i);
+  /** @param {number} i @param {(value: number) => number} change @param {number[]} [range] */
+  const write = (i, change, range) => {
+    const min = Math.max(core.getParameterMinimumValue(i), range?.[0] ?? -Infinity);
+    const max = Math.min(core.getParameterMaximumValue(i), range?.[1] ?? Infinity);
     core.setParameterValueByIndex(i, Math.max(min, Math.min(max, change(core.getParameterValueByIndex(i)))));
   };
 
@@ -86,8 +87,10 @@ export function attachFaceDriver(model) {
     }
     for (const { id, mode, value } of faceToLive2D(params)) {
       const i = index(id);
-      if (i < 0) continue;
-      if (mode === "add") write(i, (v) => v + value * w);
+      if (i < 0 || i >= core.getParameterCount()) continue;
+      // Optional bodyAngleY marks a combined body pose; legacy face-only stays unchanged.
+      const range = Number.isFinite(params.bodyAngleY) ? bodyRanges[id] : undefined;
+      if (mode === "add") write(i, (v) => v + value * w, range);
       else if (mode === "multiply") write(i, (v) => v * (1 - w + w * value));
       else write(i, (v) => v + (value - v) * w);
     }

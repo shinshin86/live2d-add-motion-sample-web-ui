@@ -389,26 +389,57 @@ at most 10 fps, one bitmap in flight, with extra backoff after slow inference.
 Failure disables only body inference; the face Worker continues. Stop/disable
 terminates the body Worker and late bitmaps are closed.
 
-`body-tracking.js` uses shoulders 11/12 and hips 23/24 in normalized/world
-coordinates. Require visibility >=0.6 and finite nondegenerate geometry. The
-pinned JavaScript API omits presence; check it only when supplied. Calibrate on
-the first valid pose and with the existing reset button; mirror/sensitivity/
-smoothing apply. Lost poses expire after 500 ms, then fade to neutral.
-Body angles X/Y/Z cap at 8/6/8 degrees and replace face-derived body angles while
-enabled. Arm and rig-specific shoulder controls are omitted: their continuous
-natural mapping has not been verified across the installed rigs.
+`body-tracking.js` requires finite, nondegenerate shoulders 11/12 with visibility
+>=0.6; presence is checked only when supplied (the pinned JS API omits it).
+Shoulders alone provide yaw from world depth and roll from the image shoulder
+line. Hips 23/24 are optional: only pitch requires confident hips and a valid torso
+length. Missing hips drop pitch and retain shoulder yaw/roll. First valid shoulders
+calibrate yaw/roll; first valid hips calibrate pitch independently, avoiding a jump
+when hips enter the frame. The reset button recalibrates visible axes. Lost poses
+expire after 500 ms, then fade out their contribution.
+
+Body sensitivity is independent of head sensitivity: 0.25–3, default 1. Axis gains
+are yaw 0.7, pitch 0.65 and roll 1.15 per measured degree. Share mirror/smoothing;
+mirror yaw/roll only. Add independently weighted face-derived body sway rather
+than replacing it, then clamp the effective composed contribution before encoding
+the existing single relay weight. Account for the Live2D pitch/roll sign inversion
+when clamping asymmetric bounds. Arm and rig-specific shoulder controls stay unused.
+
+`web/body-model.js` loads read-only `GET /live/body-ranges?model=<model3 path>` once
+per page/model with a 2 s timeout. The server accepts only exact installed model
+paths, reads under recordings_lock, uses observed_reference (excluding Actions and
+all shared-owned remnants), and returns base/min/max/source for body XYZ, disabling
+physics outputs. Unknown paths return 404, invalid references 500. No config or
+model files are written. Missing observations use conventional [-10,10] bounds.
+The client intersects with core bounds and skips absent parameters. Static/older
+servers fall back to conventional bounds and show that source in the readout.
+Hiyori XYZ references are [-10,10]/[-7,10]/[-10,10], base 0; Haru uses [-10,10]
+on all axes. Contributions are relative to the reference base. Both control and
+stream face drivers also clamp motion + tracked body to absolute safe bounds when
+optional bodyAngleY marks a combined body pose; face-only/legacy behavior stays as is.
 
 Combined face/body parameters keep independent loss weights and enter the same
 renderer, recorder and relay. Optional bodyAngleY maps to ParamBodyAngleY with
 the pitch sign reversed, and is omitted when body tracking is off. Old messages
-and recordings need no new fields/version; new relay readers accept either.
+and recordings need no new fields/version; new relay readers accept either and
+allow bodyAngleY within the same defensive ±30 envelope as other angle fields.
+Keep encoded combined body values inside that envelope even during loss fades.
 Reload both pages after updates. Lock the body toggle during recording so every
 sample has the same parameter IDs. Never transmit images or raw pose landmarks.
 
+`web/body-debug.js` renders opt-in local diagnostics at most 5 Hz only while the
+"数値を表示" checkbox is checked. Default OFF, never persisted; `bodydebug=1`
+enables it on load. Include detection/mode/age, each shoulder/hip visibility and
+weakest landmark, raw yaw/pitch/roll, calibrated deltas, face sway, effective
+Live2D body XYZ encoded additive values, weight/effective contribution, and range source. Diagnostics/landmarks never
+enter recordings or relay payloads; only the final composed parameters do.
+
 `?fakebody=1` supplies synthetic landmarks through the same math. `bodytime=N`
-holds a synthetic time; body=0 disables its contribution. Can combine fakeface
-and recording hooks. Verify OFF and opposite poses on both models, inspect the
-resulting body XYZ recording curves, and validate both models. Real-camera
+holds a synthetic time; body=0 disables its contribution, bodyhips=0 hides hips.
+Can combine fakeface, bodydebug and recording hooks. Verify OFF and opposite poses
+on both models, including bodytime=±0.35 for small leans and ±1 for extremes;
+compare prior images under tmp-verify/body/. Inspect the readout and shoulder-only
+path, resulting body XYZ recording curves, and validate both models. Real-camera
 accuracy, signs and face responsiveness still need a manual check. The model's
 source, hash, license and pinned-runtime privacy notes are in vendor/mediapipe/.
 
@@ -482,7 +513,8 @@ the control page after updating these endpoints.
 | `&camera=1` | Start the camera on load |
 | `&preview=0` | Start with the camera image hidden (tracking continues) |
 | `&fakeface=1` | Drive the face with synthetic tracking results (no camera) |
-| `&fakebody=1` | Drive body angles from synthetic shoulder/hip landmarks; bodytime=N fixes a pose, body=0 disables it |
+| `&fakebody=1` | Drive body angles from synthetic shoulder/hip landmarks; bodytime=N fixes a pose, body=0 disables it, bodyhips=0 hides hips |
+| `&bodydebug=1` | Show local body tracking diagnostics (default OFF; no camera auto-start) |
 | `&record=N` | Record N seconds of the face and save it (`&recordloop=1`: as a loop, `&recordname=<name>`: motion name); with `&fakeface=1` this tests the recording path headless |
 | `stream.html?bg=green&status=1` | Streaming page: background (transparent by default, `green`, `blue`, `<hex>`); `status=1` shows the relay state |
 

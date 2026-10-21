@@ -314,11 +314,14 @@
       <video id="cameraPreview" muted playsinline hidden></video>
       <div id="previewHidden" hidden>映像は非表示です(トラッキングは動作中)</div>
       <button id="previewToggle" class="action" hidden>映像を隠す</button>
-      <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="3" step="0.05" value="1.5"></label>
+      <label class="slider">顔の感度 <input type="range" id="sensitivity" min="0.25" max="3" step="0.05" value="1.5"></label>
       <label class="slider">なめらかさ <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.35"></label>
       <label class="check"><input type="checkbox" id="mirror" checked> 鏡のように動かす(左右反転)</label>
       <label class="check"><input type="checkbox" id="bodyTracking"> 上半身も動かす</label>
-      <div id="bodyNote" class="note">上半身はOFFです。ONにする場合は肩と腰を映してください。腕は動かしません。</div>
+      <label class="slider">上半身の感度 <input type="range" id="bodySensitivity" min="0.25" max="3" step="0.05" value="1"></label>
+      <div id="bodyNote" class="note">上半身はOFFです。ONにする場合は両肩を映してください。腰も映ると前後の傾きを使えます。腕は動かしません。</div>
+      <label class="check"><input type="checkbox" id="bodyDebugToggle"> 数値を表示</label>
+      <pre id="bodyDebug" class="note" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px"></pre>
       <div id="cameraNote" class="note">カメラ映像はブラウザの中だけで処理され、外部には送信されません</div>
       <div id="recordBox" hidden>
         <div class="section-title">演技を録画してモーションにする</div>
@@ -376,6 +379,8 @@
     import { CameraCapture } from "./web/camera.js";
     import { BodyCapture } from "./web/body-camera.js";
     import { BodyPose, combineBody } from "./web/body-tracking.js";
+    import { loadBodyLimits } from "./web/body-model.js";
+    import { attachBodyDebug } from "./web/body-debug.js";
     import { startFakeBody } from "./web/fake-body.js";
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
@@ -410,6 +415,7 @@
 
     async function main() {
       const MODEL_JSON = await resolveModelJson();
+      const params = new URLSearchParams(location.search);
       const stage = document.getElementById("stage");
       const app = new PIXI.Application({
         backgroundAlpha: 0,
@@ -678,7 +684,8 @@
       // ---- Camera face tracking (web/tracking.js, web/camera.js): frames are
       // processed in a worker inside the browser; only face parameters come back.
       const facePose = new FacePose();
-      const faceDriver = attachFaceDriver(model);
+      const bodyBounds = await loadBodyLimits(model, MODEL_JSON);
+      const faceDriver = attachFaceDriver(model, bodyBounds.ranges);
       const preview = document.getElementById("cameraPreview");
       const cameraToggle = document.getElementById("cameraToggle");
       const calibrateButton = document.getElementById("calibrate");
@@ -698,9 +705,13 @@
       let calibrated = false;
       let stopFake = null;
       let stopFakeBody = null;
-      const bodyPose = new BodyPose();
+      const bodyPose = new BodyPose(bodyBounds.limits);
       const bodyToggle = document.getElementById("bodyTracking");
+      const bodySensitivity = document.getElementById("bodySensitivity");
       const bodyNote = document.getElementById("bodyNote");
+      const bodyDebugToggle = document.getElementById("bodyDebugToggle");
+      bodyDebugToggle.checked = params.get("bodydebug") === "1";
+      const updateBodyDebug = attachBodyDebug(bodyDebugToggle, document.getElementById("bodyDebug"), bodyPose, bodyBounds);
       let bodyState = "off";
       const bodyCapture = new BodyCapture(preview, (result, now, aspect) => bodyPose.update(result, now, aspect), state => {
         bodyState = state;
@@ -1029,17 +1040,20 @@
             cameraNote.textContent = sampled.tracking ? CAMERA_NOTES.running : "顔が見つかりません(カメラの正面に顔を入れてください)";
           }
         }
+        const faceOnly = face, faceWeight = weight;
         if (bodyToggle.checked) {
-          const body = bodyPose.sample(now, dt, { mirror: mirror.checked, sensitivity: Number(sensitivity.value), smoothing: Number(smoothing.value) });
-          const combined = combineBody(face, weight, body);
+          const body = bodyPose.sample(now, dt, { mirror: mirror.checked, sensitivity: Number(bodySensitivity.value), smoothing: Number(smoothing.value) });
+          const combined = combineBody(face, weight, body, bodyBounds.limits);
           face = combined.params; weight = combined.weight;
           bodyNote.textContent = bodyState === "error" ? "上半身の検出を開始できません。OFFにしてからもう一度ONにしてください。顔の検出は続いています。" :
-            bodyState === "loading" ? "上半身の検出を準備しています…" : body.tracking ? "上半身をトラッキング中" : "肩と腰が見えるようにカメラに入ってください";
+            bodyState === "loading" ? "上半身の検出を準備しています…" : body.tracking ?
+              bodyPose.raw?.pitch === null ? "肩をトラッキング中（腰が見えないため前後の傾きは使いません）" : "肩と腰をトラッキング中" : "両肩が見えるようにカメラに入ってください";
           bodyNote.classList.toggle("warn", bodyState === "error");
         } else {
-          bodyNote.textContent = "上半身はOFFです。ONにする場合は肩と腰を映してください。腕は動かしません。";
+          bodyNote.textContent = "上半身はOFFです。ONにする場合は両肩を映してください。腰も映ると前後の傾きを使えます。腕は動かしません。";
           bodyNote.classList.remove("warn");
         }
+        updateBodyDebug(now, bodyToggle.checked, bodyState, faceOnly, faceWeight, face, weight);
         liveFace = weight > 0 ? face : null;
         liveWeight = weight;
         if (lipsync.mode !== "off") {
@@ -1187,7 +1201,6 @@
       // Debug hooks: ?play=Group:index auto-plays a motion, &freeze=seconds pins the pose at that time,
       // &cycles=N ends a loop motion after its Nth cycle, &lipsync=1 turns on the simulated lip sync
       // (&lipsync=mic: microphone), &audio=<url> lip-syncs to an audio file
-      const params = new URLSearchParams(location.search);
       const editRecording = params.get("editrecording");
       if (editRecording) {
         const entry = newEntries.find(e => isRecorded(e) && e.File.split("/").pop().replace(/\.motion3\.json$/, "") === editRecording);
@@ -1202,11 +1215,11 @@
         else expressionNote.textContent = `表情が見つかりません: ${expression}`;
       }
       if (params.get("tab")) selectTab(params.get("tab") === "camera" ? "camera" : "motion");
-      else if (params.get("camera") || params.get("fakeface") || params.get("fakebody") || params.get("record")) selectTab("camera");
+      else if (params.get("camera") || params.get("fakeface") || params.get("fakebody") || params.get("bodydebug") || params.get("record")) selectTab("camera");
       if (params.get("fakebody")) {
         bodyToggle.checked = params.get("body") !== "0";
         const time = params.get("bodytime");
-        stopFakeBody = startFakeBody((result, now) => bodyPose.update(result, now), time !== null && Number.isFinite(Number(time)) ? Number(time) : null);
+        stopFakeBody = startFakeBody((result, now) => bodyPose.update(result, now), time !== null && Number.isFinite(Number(time)) ? Number(time) : null, params.get("bodyhips") !== "0");
       }
       // &fakeface=1 drives the face with synthetic tracking results (no camera)
       if (params.get("fakeface")) {

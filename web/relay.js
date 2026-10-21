@@ -102,7 +102,7 @@ export function relayMessage(input) {
         face[key] = value;
       }
       if ("bodyAngleY" in data.face) {
-        const value = finite(/** @type {Record<string, unknown>} */ (data.face).bodyAngleY, -6, 6);
+        const value = finite(/** @type {Record<string, unknown>} */ (data.face).bodyAngleY, -30, 30);
         if (value === null) return null;
         face.bodyAngleY = value;
       }

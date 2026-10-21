@@ -6,6 +6,7 @@ live messages from the control page (index.html) to the streaming page
 Endpoints besides the static files:
   GET  /live/status        relay capabilities, stream clients, and controllers
   GET  /live/models        installed models and the current model name
+  GET  /live/body-ranges   observed/conventional body bounds for an installed model
   POST /live/model         select an installed model (same-origin JSON)
   POST /live/send          one JSON message from the control page
   GET  /live/events        Server-Sent Events stream of those messages
@@ -50,6 +51,7 @@ import urllib.parse
 
 from gen_motions import observed_reference, recording_motion
 from recording_edits import normalize_edit
+from shared_motions import conventional_reference
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESSAGE_TYPES = {"pose", "motion", "stop", "expression"}  # see web/relay.js
@@ -137,6 +139,31 @@ def configured_model():
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return None
+
+
+def body_ranges(model_path):
+    """Read-only bounds for an installed model, independent of the selected model."""
+    if model_path not in {entry["model3"] for entry in installed_models()}:
+        return None
+    path = os.path.join(ROOT, model_path)
+    runtime = os.path.dirname(path)
+    with open(path) as fh:
+        model3 = json.load(fh)
+    base, ranges = observed_reference(runtime, model3)
+    physics = model3.get("FileReferences", {}).get("Physics")
+    outputs = set()
+    if physics:
+        with open(os.path.join(runtime, physics)) as fh:
+            outputs = {o["Destination"]["Id"] for s in json.load(fh).get("PhysicsSettings", []) for o in s.get("Output", [])}
+    result = {}
+    for axis in "XYZ":
+        pid = "ParamBodyAngle" + axis
+        rest, (lo, hi) = (base[pid], ranges[pid]) if pid in ranges else conventional_reference(pid)
+        if not all(math.isfinite(v) for v in (rest, lo, hi)) or not lo <= rest <= hi:
+            raise ValueError("invalid body reference")
+        result[pid] = {"base": rest, "min": lo, "max": hi, "source": "observed" if pid in ranges else "conventional",
+                       "disabled": pid in outputs}
+    return result
 
 
 def valid_recording(rec):
@@ -275,6 +302,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                   "recordingEdit": 1, "expressionRelay": 1})
         elif url.path == "/live/models":
             self.json_reply(200, {"current": configured_model(), "models": installed_models()})
+        elif url.path == "/live/body-ranges":
+            try:
+                with recordings_lock:
+                    ranges = body_ranges(urllib.parse.parse_qs(url.query).get("model", [""])[0])
+                self.json_reply(200 if ranges is not None else 404, {"ranges": ranges} if ranges is not None else {"error": "モデルが見つかりません"})
+            except (OSError, ValueError, KeyError, TypeError, IndexError):
+                self.json_reply(500, {"error": "上半身の参照範囲を読み込めません"})
         elif url.path == "/__verify_hold":
             time.sleep(float(urllib.parse.parse_qs(url.query).get("s", ["0"])[0]))
             self.send_response(204)
