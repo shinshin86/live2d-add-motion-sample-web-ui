@@ -238,6 +238,14 @@ def valid_expression_message(message):
              re.fullmatch(r"[A-Za-z0-9_-]{1,240}", message["name"]) is not None))
 
 
+def valid_stage_message(stage):
+    """Only bounded final viewport offsets; optional for older senders."""
+    limits = {"x": 0.15, "y": 0.08, "rot": 8}
+    return (isinstance(stage, dict) and set(stage) == set(limits) and
+            all(type(stage[key]) in (int, float) and math.isfinite(stage[key]) and
+                abs(stage[key]) <= bound for key, bound in limits.items()))
+
+
 def broadcast(message):
     global expression_state
     payload = json.dumps(message, separators=(",", ":"))
@@ -381,7 +389,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if (not isinstance(message, dict) or not isinstance(message.get("type"), str) or
                 message["type"] not in MESSAGE_TYPES or
-                message["type"] == "expression" and not valid_expression_message(message)):
+                message["type"] == "expression" and not valid_expression_message(message) or
+                message["type"] == "pose" and "stage" in message and not valid_stage_message(message["stage"])):
             self.send_error(400)
             return
         broadcast(message)

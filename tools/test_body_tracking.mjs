@@ -25,7 +25,7 @@ function simulate(input, interval = 100) {
   let old = {bodyAngleX: 0}, target = 0;
   for (let frame = 1; frame <= 600; frame++) {
     const now = frame * 1000/60;
-    if (frame % (interval / (1000/60)) < 1e-8 || frame % Math.round(interval/(1000/60)) === 0) {
+    if (frame % Math.round(interval/(1000/60)) === 0) {
       target = input(now/1000) * .7;
       pose.update(fixture(target/.7), now);
     }
@@ -45,12 +45,15 @@ check(afterLag < 300, 'fast ramp midpoint lag under 300ms');
 check(afterLag-beforeLag < 170, 'extra lag under 170ms');
 const steps = simulate(t => Math.floor(t*5)*.2, 200);
 const glideRatio = values => (values[237]-values[236])/(values[229]-values[228]);
+const steps10 = simulate(t => Math.floor(t*10)*.1);
+const glide10 = values => (values[238]-values[237])/(values[235]-values[234]);
+check(glide10(steps10.after) > .6, '10fps target keeps moving between results');
 check(glideRatio(steps.after) > .4, '200ms input still glides at end of interval');
 check(glideRatio(steps.after) > glideRatio(steps.before)*2, 'late-interval speed ratio improves');
 check(bodyTimeConstant(1,100)>bodyTimeConstant(0,100), 'slider changes body tau');
 check(bodyTimeConstant(.35,200)>bodyTimeConstant(.35,100), 'sparse inference increases tau');
 console.log(JSON.stringify({beforeJitter,afterJitter,jitterReduction:1-afterJitter/beforeJitter,beforeLag,afterLag,
- beforeGlideRatio:glideRatio(steps.before),afterGlideRatio:glideRatio(steps.after)},null,2));
+ before10fpsGlideRatio:glide10(steps10.before),after10fpsGlideRatio:glide10(steps10.after),beforeGlideRatio:glideRatio(steps.before),afterGlideRatio:glideRatio(steps.after)},null,2));
 
 const filter = new OneEuro(); filter.update(0,0);filter.update(10,100);
 const held=filter.value; check(filter.update(500,100)===held,'duplicate timestamp ignored');

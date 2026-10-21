@@ -436,15 +436,39 @@ Keep encoded combined body values inside that envelope even during loss fades.
 Reload both pages after updates. Lock the body toggle during recording so every
 sample has the same parameter IDs. Never transmit images or raw pose landmarks.
 
+"キャラ全体を動かす" is optional, defaults OFF on every load and is disabled while
+body tracking is OFF. Translation/rotation strengths range 0–2, default 1. The
+shoulder midpoint is relative to its calibrated neutral, in units of the neutral
+shoulder width (Y also accounts for image aspect). Filtering uses One Euro
+minimum 0.65 Hz / beta 8 for normalized positions plus the same body-time glide;
+rotation uses the filtered body roll. Mirror flips X and rotation only. Final
+viewport-relative caps are X ±0.15, Y ±0.08 and rotation ±8 degrees. Loss fades
+with the body weight; calibration resets all offsets. `web/body-stage.js` applies
+a transient parent transform around the user's placement anchor on both pages;
+drag/wheel/reset and stream placement storage contain only the base placement.
+The movement is live/stream only: recordings keep only rig parameters.
+
+Pose relay messages may include `stage: {x, y, rot}` with final weighted offsets.
+Server and client reject malformed, nonfinite, extra-field or out-of-bound stage
+objects; old senders omit stage and clear any previous offset, old receivers
+ignore the field. Only final numbers are sent, never images or landmarks. Busy
+pose dropping stays unchanged. Stream offsets fade after 1 s without a pose,
+independently of face weight, and clear on model notifications. Run
+`node tools/test_body_stage.mjs` and `python3 -B tools/test_body_stage.py` for
+geometry, caps, mirror, loss, placement storage and relay checks.
+
 `web/body-debug.js` renders opt-in local diagnostics at most 5 Hz only while the
 "数値を表示" checkbox is checked. Default OFF, never persisted; `bodydebug=1`
 enables it on load. Include detection/mode/age, each shoulder/hip visibility and
-weakest landmark, pose interval/fps, raw and filtered yaw/pitch/roll, calibrated deltas, face sway, effective
-Live2D body XYZ encoded additive values, weight/effective contribution, and range source. Diagnostics/landmarks never
-enter recordings or relay payloads; only the final composed parameters do.
+weakest landmark, pose interval/fps, raw and filtered yaw/pitch/roll, calibrated
+deltas, face sway, effective Live2D body XYZ encoded additive values,
+weight/effective contribution, range source and effective stage x/y/rotation.
+Diagnostics/landmarks never enter recordings or relay payloads; only the final
+composed parameters and stage offsets do.
 
 `?fakebody=1` supplies synthetic landmarks through the same math. `bodytime=N`
 holds a synthetic time; body=0 disables its contribution, bodyhips=0 hides hips.
+Add `bodystage=1` with fakebody to enable whole-character movement for verification.
 Can combine fakeface, bodydebug and recording hooks. Verify OFF and opposite poses
 on both models, including bodytime=±0.35 for small leans and ±1 for extremes;
 compare prior images under tmp-verify/body/. Inspect the readout and shoulder-only
@@ -516,6 +540,7 @@ the control page after updating these endpoints.
 | `&lipsync=1` | Simulated lip sync (overwrites the LipSync parameters every frame); `&lipsync=mic` uses the microphone |
 | `&audio=<url>` | Lip-sync to an audio file (loudness of the playing audio) |
 | `&expression=<name>` | Apply an exp3 expression by file stem or exact display name |
+| `?fakebody=1&bodytime=0.35&bodystage=1` | Synthetic upper body plus live-only whole-character movement |
 | `&editrecording=<ID>` | Open a saved recording's editor without changing its source |
 | `&hold=N` | Keep the window "load" event pending for N s (used by verify_browser.sh; also on stream.html) |
 | `&tab=motion\|camera` | Open a panel tab (the camera hooks open the camera tab unless `&tab=` says otherwise) |

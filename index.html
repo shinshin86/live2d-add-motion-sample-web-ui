@@ -164,6 +164,7 @@
       color: #1f2130; background: #7fd6b0; border-color: #7fd6b0; font-weight: 600;
     }
     #lipsyncPanel.dragover { border-color: #7fd6b0; background: #2c3a3a; }
+    #bodyStageControls:disabled { opacity: 0.5; }
     #cameraPreview { width: 100%; border-radius: 8px; transform: scaleX(-1); background: #1f2130; }
     #cameraPreview.unmirrored { transform: none; }
     /* hidden preview: kept rendered (1 px, invisible) so frame capture keeps working */
@@ -320,6 +321,12 @@
       <label class="check"><input type="checkbox" id="bodyTracking"> 上半身も動かす</label>
       <label class="slider">上半身の感度 <input type="range" id="bodySensitivity" min="0.25" max="3" step="0.05" value="1"></label>
       <div id="bodyNote" class="note">上半身はOFFです。ONにする場合は両肩を映してください。腰も映ると前後の傾きを使えます。腕は動かしません。</div>
+      <fieldset id="bodyStageControls" style="border:0;padding:0;margin:0" disabled>
+        <label class="check"><input type="checkbox" id="bodyStage"> キャラ全体を動かす</label>
+        <label class="slider">移動の強さ <input type="range" id="bodyMoveStrength" min="0" max="2" step="0.05" value="1"></label>
+        <label class="slider">回転の強さ <input type="range" id="bodyRotationStrength" min="0" max="2" step="0.05" value="1"></label>
+        <div class="note">全体の移動・回転はライブ・配信専用です。録画には保存されません。</div>
+      </fieldset>
       <label class="check"><input type="checkbox" id="bodyDebugToggle"> 数値を表示</label>
       <pre id="bodyDebug" class="note" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px"></pre>
       <div id="cameraNote" class="note">カメラ映像はブラウザの中だけで処理され、外部には送信されません</div>
@@ -378,6 +385,7 @@
     import { startBackgroundClock } from "./web/background-clock.js";
     import { CameraCapture } from "./web/camera.js";
     import { BodyCapture } from "./web/body-camera.js";
+    import { attachBodyStage, STAGE_ZERO } from "./web/body-stage.js";
     import { BodyPose, combineBody } from "./web/body-tracking.js";
     import { loadBodyLimits } from "./web/body-model.js";
     import { attachBodyDebug } from "./web/body-debug.js";
@@ -427,7 +435,13 @@
       stage.appendChild(app.view);
 
       const model = await PIXI.live2d.Live2DModel.from(MODEL_JSON);
-      app.stage.addChild(model);
+      const stageContainer = new PIXI.Container();
+      app.stage.addChild(stageContainer);
+      stageContainer.addChild(model);
+      const applyBodyStage = attachBodyStage(app, model, stageContainer);
+      let liveStage = { ...STAGE_ZERO };
+      const placementPoint = point => ({ x: point.x - liveStage.x * app.screen.width,
+        y: point.y - liveStage.y * app.screen.height });
 
       let userAdjusted = false; // after drag/zoom, don't reset the layout on resize
       function layout() {
@@ -447,15 +461,14 @@
       model.buttonMode = true;
       let drag = null;
       model.on("pointerdown", (e) => {
-        drag = {
-          dx: e.data.global.x - model.x,
-          dy: e.data.global.y - model.y,
-        };
+        const point = placementPoint(e.data.global);
+        drag = { dx: point.x - model.x, dy: point.y - model.y };
       });
       model.on("pointermove", (e) => {
         if (!drag) return;
         userAdjusted = true;
-        model.position.set(e.data.global.x - drag.dx, e.data.global.y - drag.dy);
+        const point = placementPoint(e.data.global);
+        model.position.set(point.x - drag.dx, point.y - drag.dy);
       });
       model.on("pointerup", () => { drag = null; });
       model.on("pointerupoutside", () => { drag = null; });
@@ -465,8 +478,9 @@
       app.view.addEventListener("wheel", (e) => {
         e.preventDefault();
         const rect = app.view.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        const point = placementPoint({ x: (e.clientX - rect.left) * app.screen.width / rect.width,
+          y: (e.clientY - rect.top) * app.screen.height / rect.height });
+        const mx = point.x, my = point.y;
         const base = model.scale.x;
         const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, base * Math.exp(-e.deltaY * 0.002)));
         const factor = next / base;
@@ -476,10 +490,12 @@
         model.position.set(mx + (model.x - mx) * factor, my + (model.y - my) * factor);
       }, { passive: false });
 
-      document.getElementById("resetView").onclick = () => {
+      const resetPlacement = () => {
         userAdjusted = false;
         layout();
       };
+      document.getElementById("resetView").onclick = resetPlacement;
+      app.view.addEventListener("dblclick", resetPlacement);
 
       const settings = model.internalModel.settings;
       const groups = settings.motions; // FileReferences.Motions
@@ -707,6 +723,11 @@
       let stopFakeBody = null;
       const bodyPose = new BodyPose(bodyBounds.limits);
       const bodyToggle = document.getElementById("bodyTracking");
+      const bodyStageControls = document.getElementById("bodyStageControls");
+      const bodyStageToggle = document.getElementById("bodyStage");
+      const bodyMoveStrength = document.getElementById("bodyMoveStrength");
+      const bodyRotationStrength = document.getElementById("bodyRotationStrength");
+      const syncStageControls = () => { bodyStageControls.disabled = !bodyToggle.checked; };
       const bodySensitivity = document.getElementById("bodySensitivity");
       const bodyNote = document.getElementById("bodyNote");
       const bodyDebugToggle = document.getElementById("bodyDebugToggle");
@@ -721,7 +742,7 @@
         if (bodyToggle.checked && cameraState === "running" && !stopFakeBody) bodyCapture.start();
         else bodyCapture.stop();
       }
-      bodyToggle.onchange = () => { bodyPose.reset(); updateBodyCapture(); };
+      bodyToggle.onchange = () => { bodyPose.reset(); syncStageControls(); updateBodyCapture(); };
       const onFace = (result, now) => {
         facePose.update(result, now);
         // the first face seen becomes the neutral, front-facing face
@@ -840,7 +861,7 @@
       const recordReload = document.getElementById("recordReload");
       recordReload.onclick = () => {
         const url = new URL(location.href);
-        for (const key of ["record", "recordloop", "recordname", "camera", "fakeface", "fakebody", "bodytime", "body", "play", "freeze", "hold"]) url.searchParams.delete(key);
+        for (const key of ["record", "recordloop", "recordname", "camera", "fakeface", "fakebody", "bodytime", "body", "bodystage", "play", "freeze", "hold"]) url.searchParams.delete(key);
         url.searchParams.set("tab", "motion");
         location.href = url.href;
       };
@@ -1022,7 +1043,10 @@
       let lastFrame = performance.now();
       let liveFace = null;
       let liveWeight = 0;
-      app.ticker.add(() => faceDriver.set(previewing ? null : liveFace, previewing ? 0 : liveWeight));
+      app.ticker.add(() => {
+        applyBodyStage(previewing ? STAGE_ZERO : liveStage);
+        faceDriver.set(previewing ? null : liveFace, previewing ? 0 : liveWeight);
+      });
       let sentIdle = true;
       startBackgroundClock((now) => {
         const dt = (now - lastFrame) / 1000;
@@ -1042,7 +1066,12 @@
         }
         const faceOnly = face, faceWeight = weight;
         if (bodyToggle.checked) {
-          const body = bodyPose.sample(now, dt, { mirror: mirror.checked, sensitivity: Number(bodySensitivity.value), smoothing: Number(smoothing.value) });
+          const body = bodyPose.sample(now, dt, {
+            mirror: mirror.checked, sensitivity: Number(bodySensitivity.value), smoothing: Number(smoothing.value),
+            stage: bodyStageToggle.checked, moveStrength: Number(bodyMoveStrength.value),
+            rotationStrength: Number(bodyRotationStrength.value),
+          });
+          liveStage = body.stage;
           const combined = combineBody(face, weight, body, bodyBounds.limits);
           face = combined.params; weight = combined.weight;
           bodyNote.textContent = bodyState === "error" ? "上半身の検出を開始できません。OFFにしてからもう一度ONにしてください。顔の検出は続いています。" :
@@ -1050,6 +1079,7 @@
               bodyPose.raw?.pitch === null ? "肩をトラッキング中（腰が見えないため前後の傾きは使いません）" : "肩と腰をトラッキング中" : "両肩が見えるようにカメラに入ってください";
           bodyNote.classList.toggle("warn", bodyState === "error");
         } else {
+          liveStage = { ...STAGE_ZERO };
           bodyNote.textContent = "上半身はOFFです。ONにする場合は両肩を映してください。腰も映ると前後の傾きを使えます。腕は動かしません。";
           bodyNote.classList.remove("warn");
         }
@@ -1075,10 +1105,10 @@
         if (!relayOn) return;
         const mouth = lipsync.mode === "off" ? null : lipsync.level;
         if (weight > 0 || mouth !== null) {
-          sendRelay({ type: "pose", face: weight > 0 ? face : null, weight, mouth });
+          sendRelay({ type: "pose", face: weight > 0 ? face : null, weight, mouth, stage: liveStage });
           sentIdle = false;
         } else if (!sentIdle) {
-          if (sendRelay({ type: "pose", face: null, weight: 0, mouth: null })) sentIdle = true;
+          if (sendRelay({ type: "pose", face: null, weight: 0, mouth: null, stage: { ...STAGE_ZERO } })) sentIdle = true;
         }
       });
 
@@ -1218,6 +1248,8 @@
       else if (params.get("camera") || params.get("fakeface") || params.get("fakebody") || params.get("bodydebug") || params.get("record")) selectTab("camera");
       if (params.get("fakebody")) {
         bodyToggle.checked = params.get("body") !== "0";
+        bodyStageToggle.checked = params.get("bodystage") === "1";
+        syncStageControls();
         const time = params.get("bodytime");
         stopFakeBody = startFakeBody((result, now) => bodyPose.update(result, now), time !== null && Number.isFinite(Number(time)) ? Number(time) : null, params.get("bodyhips") !== "0");
       }

@@ -11,7 +11,7 @@ export function fakeBody(seconds, hips = true) {
     const px = x * Math.cos(yaw) + pz * Math.sin(yaw), z = -x * Math.sin(yaw) + pz * Math.cos(yaw);
     world[i] = { x: px * Math.cos(roll) - py * Math.sin(roll), y: px * Math.sin(roll) + py * Math.cos(roll), z, visibility: 1, presence: 1 };
   }
-  const image = world.map(p => ({ ...p, x: .5 + p.x * .8, y: .65 + p.y * .8 * 4 / 3 }));
+  const image = world.map(p => ({ ...p, x: .5 + p.x * .8 + Math.sin(seconds * 1.1) * .12, y: .65 + p.y * .8 * 4 / 3 + Math.sin(seconds * .8) * .04 }));
   if (!hips) for (const i of [23, 24]) image[i].visibility = 0.1;
   return { worldLandmarks: [world], landmarks: [image] };
 }
