@@ -1,6 +1,7 @@
 // @ts-check
 // Shoulder/hip geometry only: no arm or model-specific shoulder controls.
-import { clamp, smoothParameters, FACE_NEUTRAL } from "./tracking.js";
+import { clamp, FACE_NEUTRAL } from "./tracking.js";
+import { OneEuro, bodyTimeConstant } from "./body-filter.js";
 
 /** @typedef {{ x: number, y: number, z: number, visibility?: number, presence?: number }} Landmark */
 /** @typedef {{ landmarks: Landmark[][], worldLandmarks: Landmark[][] }} BodyResult */
@@ -67,6 +68,9 @@ function limitBody(key, value, limits) {
 export class BodyPose {
   /** @type {RawBody | null} */ raw = null;
   /** @type {RawBody | null} */ neutral = null;
+  /** @type {RawBody | null} */ filtered = null;
+  filters = { yaw: new OneEuro(), pitch: new OneEuro(), roll: new OneEuro() };
+  interval = 100;
   params = { ...NEUTRAL };
   seen = -Infinity;
   weight = 0;
@@ -77,30 +81,54 @@ export class BodyPose {
   update(result, now, aspect) {
     this.detection = inspectBody(result, aspect);
     const raw = this.detection.raw;
-    if (raw) {
+    if (raw && Number.isFinite(now) && now > this.seen) {
+      const gap = now - this.seen;
+      if (gap > 500) {
+        this.neutral = null; this.filtered = null; this.interval = 100;
+        for (const filter of Object.values(this.filters)) filter.reset();
+      } else this.interval += 0.25 * (clamp(gap, 16, 500) - this.interval);
       this.raw = raw; this.seen = now;
       if (!this.neutral) this.calibrate(now);
-      // First visible hips establish pitch neutral without changing shoulder calibration.
-      else if (this.neutral.pitch === null && raw.pitch !== null) this.neutral.pitch = raw.pitch;
+      else {
+        // Hips calibrate independently each time they return; never reuse a stale pitch.
+        if (raw.pitch === null) {
+          this.neutral.pitch = null; this.filters.pitch.reset();
+        } else if (this.neutral.pitch === null) {
+          this.neutral.pitch = raw.pitch; this.filters.pitch.reset();
+        }
+        this.filtered = {
+          yaw: this.filters.yaw.update(raw.yaw, now),
+          pitch: raw.pitch === null ? null : this.filters.pitch.update(raw.pitch, now),
+          roll: this.filters.roll.update(raw.roll, now),
+        };
+      }
     }
   }
   /** @param {number} now */
   calibrate(now) {
     if (!this.raw || now - this.seen > 500) return false;
-    this.neutral = { ...this.raw }; this.params = { ...NEUTRAL }; return true;
+    this.neutral = { ...this.raw }; this.params = { ...NEUTRAL };
+    for (const [axis, filter] of Object.entries(this.filters)) {
+      filter.reset();
+      if (this.raw[axis] !== null) filter.update(this.raw[axis], this.seen);
+    }
+    this.filtered = { ...this.raw };
+    return true;
   }
   reset() {
-    this.raw = null; this.neutral = null; this.seen = -Infinity; this.weight = 0; this.params = { ...NEUTRAL };
+    this.raw = null; this.filtered = null; this.neutral = null;
+    this.seen = -Infinity; this.interval = 100; this.weight = 0; this.params = { ...NEUTRAL };
+    for (const filter of Object.values(this.filters)) filter.reset();
     this.detection = inspectBody({ landmarks: [], worldLandmarks: [] });
   }
   delta() {
-    if (!this.raw || !this.neutral) return null;
-    return { yaw: this.raw.yaw - this.neutral.yaw, roll: this.raw.roll - this.neutral.roll,
-      pitch: this.raw.pitch !== null && this.neutral.pitch !== null ? this.raw.pitch - this.neutral.pitch : null };
+    if (!this.filtered || !this.neutral) return null;
+    return { yaw: this.filtered.yaw - this.neutral.yaw, roll: this.filtered.roll - this.neutral.roll,
+      pitch: this.filtered.pitch !== null && this.neutral.pitch !== null ? this.filtered.pitch - this.neutral.pitch : null };
   }
   /** @param {number} now */
   diagnostics(now) {
-    return { ...this.detection, delta: this.detection.raw ? this.delta() : null, age: now - this.seen,
+    return { ...this.detection, filtered: this.filtered, interval: this.interval, delta: this.detection.raw ? this.delta() : null, age: now - this.seen,
       weakest: this.detection.visibility.reduce((a, b) => a.value <= b.value ? a : b) };
   }
   /** @param {number} now @param {number} dt @param {import("./tracking.js").TrackingOptions} options */
@@ -115,7 +143,13 @@ export class BodyPose {
         target[key] = limitBody(key, (delta[axis.axis] ?? 0) * axis.gain * gain * (key === "bodyAngleY" ? 1 : mirror), this.limits);
       }
     }
-    this.params = smoothParameters(this.params, target, dt, tracking ? options.smoothing : 0.7);
+    const tau = tracking ? bodyTimeConstant(options.smoothing, this.interval) : 0.2;
+    const alpha = 1 - Math.exp(-Math.max(0, dt) / tau);
+    for (const key of Object.keys(target)) this.params[key] += alpha * (target[key] - this.params[key]);
+    if (!tracking) {
+      this.filtered = null; this.neutral = null;
+      for (const filter of Object.values(this.filters)) filter.reset();
+    }
     this.weight = tracking ? 1 : this.weight * Math.exp(-Math.max(0, dt) / 0.2);
     if (this.weight < 0.005) this.weight = 0;
     return { tracking, params: { ...this.params }, weight: this.weight };

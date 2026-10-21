@@ -398,6 +398,15 @@ calibrate yaw/roll; first valid hips calibrate pitch independently, avoiding a j
 when hips enter the frame. The reset button recalibrates visible axes. Lost poses
 expire after 500 ms, then fade out their contribution.
 
+Raw body yaw/pitch/roll use timestamped One Euro filters (minimum cutoff 0.65 Hz,
+beta 0.15 per degree/second, derivative cutoff 1 Hz). Filters reset on calibration,
+reset and loss; hips calibrate independently when they return. Render-clock body
+smoothing uses max(face tau, pose interval × (0.85 + smoothing)); default smoothing
+0.35 gives 1.2 pose intervals. The interval is an EWMA of valid result gaps, clamped
+to 16–500 ms; inference remains at most 10 fps. Synthetic body results also run at
+most 10 fps. Run `node tools/test_body_tracking.mjs` for jitter, ramp lag, glide,
+loss, calibration and signed-bound checks.
+
 Body sensitivity is independent of head sensitivity: 0.25–3, default 1. Axis gains
 are yaw 0.7, pitch 0.65 and roll 1.15 per measured degree. Share mirror/smoothing;
 mirror yaw/roll only. Add independently weighted face-derived body sway rather
@@ -430,7 +439,7 @@ sample has the same parameter IDs. Never transmit images or raw pose landmarks.
 `web/body-debug.js` renders opt-in local diagnostics at most 5 Hz only while the
 "数値を表示" checkbox is checked. Default OFF, never persisted; `bodydebug=1`
 enables it on load. Include detection/mode/age, each shoulder/hip visibility and
-weakest landmark, raw yaw/pitch/roll, calibrated deltas, face sway, effective
+weakest landmark, pose interval/fps, raw and filtered yaw/pitch/roll, calibrated deltas, face sway, effective
 Live2D body XYZ encoded additive values, weight/effective contribution, and range source. Diagnostics/landmarks never
 enter recordings or relay payloads; only the final composed parameters do.
 

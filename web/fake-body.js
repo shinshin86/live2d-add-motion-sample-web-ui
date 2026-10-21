@@ -20,5 +20,10 @@ export function fakeBody(seconds, hips = true) {
 export function startFakeBody(onResult, fixed = null, hips = true) {
   const started = performance.now();
   onResult(fakeBody(0, hips), started);
-  return startBackgroundClock(now => onResult(fakeBody(fixed ?? (now - started) / 1000, hips), now));
+  let last = started;
+  return startBackgroundClock(now => {
+    if (now - last < 100) return;
+    last = now;
+    onResult(fakeBody(fixed ?? (now - started) / 1000, hips), now);
+  });
 }

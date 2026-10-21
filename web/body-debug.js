@@ -32,7 +32,8 @@ export function attachBodyDebug(toggle, output, pose, bounds) {
     output.textContent = `状態: ${stateText} / 前回検出 ${Number.isFinite(d.age) ? Math.round(d.age) + "ms" : "—"}\n` +
       `信頼度 11/12=肩 23/24=腰 (!=0.6未満)\n${confidence}\n` +
       `最低: ${d.weakest ? d.weakest.id + ":" + d.weakest.value.toFixed(2) : "—"} / ${d.reason}\n` +
-      `角度 yaw/pitch/roll: ${rotation(d.raw)}°\n正面との差: ${rotation(d.delta)}°\n` +
+      `検出間隔: ${d.interval.toFixed(0)}ms / ${(1000 / d.interval).toFixed(1)}fps\n` +
+      `角度 yaw/pitch/roll 生: ${rotation(d.raw)}°\nフィルタ後: ${rotation(d.filtered)}°\n正面との差: ${rotation(d.delta)}°\n` +
       `顔由来 XYZ: ${angles(face, faceWeight)}°\n` +
       `送信加算 ParamBodyAngleX/Y/Z:\n${angles(combined, 1)}° (重み ${weight.toFixed(2)})\n重み反映 XYZ: ${angles(combined, weight)}°\n` +
       `${bounds.source} XYZ: ${Object.values(bounds.limits).map(range => range.map(value).join("..")).join(" / ")}°\n` +
