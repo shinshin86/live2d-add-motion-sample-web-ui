@@ -4,7 +4,6 @@
 // and mouth arrive as parameters.
 
 import "./verify-hold.js";
-import { attachBodyStage, STAGE_ZERO } from "./body-stage.js";
 import { attachStreamView } from "./stream-view.js";
 import { attachFaceDriver } from "./live2d-face.js";
 import { loadBodyLimits } from "./body-model.js";
@@ -43,12 +42,8 @@ async function main() {
   stage.appendChild(app.view);
   const modelPath = await modelJson();
   const model = await PIXI.live2d.Live2DModel.from(modelPath, { autoInteract: false });
-  const stageContainer = new PIXI.Container();
-  app.stage.addChild(stageContainer);
-  stageContainer.addChild(model);
-  const applyBodyStage = attachBodyStage(app, model, stageContainer);
-  let stageOffset = { ...STAGE_ZERO };
-  attachStreamView(app, model, modelPath, params, () => stageOffset);
+  app.stage.addChild(model);
+  attachStreamView(app, model, modelPath, params);
 
   const player = createMotionPlayer(model);
   const bodyBounds = await loadBodyLimits(model, modelPath);
@@ -65,9 +60,7 @@ async function main() {
     messages++;
     if (message.type === "pose") {
       Object.assign(pose, message, { received: performance.now() });
-      stageOffset = { ...(message.stage ?? STAGE_ZERO) };
     } else if (message.type === "model") {
-      stageOffset = { ...STAGE_ZERO };
       commandVersion++;
       commands = Promise.resolve();
       void expressions.select(-1);
@@ -108,11 +101,6 @@ async function main() {
     last = now;
     const live = now - pose.received <= 1000;
     if (!live) pose.weight *= Math.exp(-dt / 0.2);
-    if (!live) for (const key of Object.keys(stageOffset)) {
-      stageOffset[key] *= Math.exp(-Math.max(0, dt) / 0.2);
-      if (Math.abs(stageOffset[key]) < 0.00001) stageOffset[key] = 0;
-    }
-    applyBodyStage(stageOffset);
     face.set(pose.face, pose.weight < 0.005 ? 0 : pose.weight);
     if (!status.hidden) {
       status.textContent = `relay: ${live ? "受信中" : "待機中"} messages=${messages} face=${pose.face ? "on" : "off"} ${expressionStatus}`;

@@ -36,7 +36,6 @@ export function attachBodyDebug(toggle, output, pose, bounds) {
       `角度 yaw/pitch/roll 生: ${rotation(d.raw)}°\nフィルタ後: ${rotation(d.filtered)}°\n正面との差: ${rotation(d.delta)}°\n` +
       `顔由来 XYZ: ${angles(face, faceWeight)}°\n` +
       `送信加算 ParamBodyAngleX/Y/Z:\n${angles(combined, 1)}° (重み ${weight.toFixed(2)})\n重み反映 XYZ: ${angles(combined, weight)}°\n` +
-      `全体 移動 x/y: ${value(d.stage.x * 100)}% / ${value(d.stage.y * 100)}% 回転: ${value(d.stage.rot)}°\n` +
       `${bounds.source} XYZ: ${Object.values(bounds.limits).map(range => range.map(value).join("..")).join(" / ")}°\n` +
       "送信値はモーションに加算。映像・診断値は送信しません。";
   };

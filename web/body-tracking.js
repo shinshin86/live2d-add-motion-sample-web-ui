@@ -1,7 +1,6 @@
 // @ts-check
 // Shoulder/hip geometry only: no arm or model-specific shoulder controls.
 import { clamp, FACE_NEUTRAL } from "./tracking.js";
-import { STAGE_LIMITS, STAGE_ZERO } from "./body-stage.js";
 import { OneEuro, bodyTimeConstant } from "./body-filter.js";
 
 /** @typedef {{ x: number, y: number, z: number, visibility?: number, presence?: number }} Landmark */
@@ -72,11 +71,6 @@ export class BodyPose {
   /** @type {RawBody | null} */ filtered = null;
   filters = { yaw: new OneEuro(), pitch: new OneEuro(), roll: new OneEuro() };
   interval = 100;
-  /** @type {{x: number, y: number, width: number, aspect: number} | null} */ stagePoint = null;
-  /** @type {typeof this.stagePoint} */ stageNeutral = null;
-  stageFilters = { x: new OneEuro(0.65, 8), y: new OneEuro(0.65, 8) };
-  stageFiltered = { x: 0, y: 0 };
-  stage = { ...STAGE_ZERO };
   params = { ...NEUTRAL };
   seen = -Infinity;
   weight = 0;
@@ -93,9 +87,6 @@ export class BodyPose {
         this.neutral = null; this.filtered = null; this.interval = 100;
         for (const filter of Object.values(this.filters)) filter.reset();
       } else this.interval += 0.25 * (clamp(gap, 16, 500) - this.interval);
-      const [left, right] = [result.landmarks[0][11], result.landmarks[0][12]];
-      this.stagePoint = { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2,
-        width: Math.abs(left.x - right.x), aspect: Number.isFinite(aspect) && aspect > 0 ? aspect : 4/3 };
       this.raw = raw; this.seen = now;
       if (!this.neutral) this.calibrate(now);
       else {
@@ -104,14 +95,6 @@ export class BodyPose {
           this.neutral.pitch = null; this.filters.pitch.reset();
         } else if (this.neutral.pitch === null) {
           this.neutral.pitch = raw.pitch; this.filters.pitch.reset();
-        }
-        if (this.stageNeutral) {
-          const n = this.stageNeutral;
-          // Neutral shoulder width avoids depth/rotation-driven gain changes.
-          this.stageFiltered = {
-            x: this.stageFilters.x.update((this.stagePoint.x - n.x) / n.width, now),
-            y: this.stageFilters.y.update((this.stagePoint.y - n.y) / (n.width * n.aspect), now),
-          };
         }
         this.filtered = {
           yaw: this.filters.yaw.update(raw.yaw, now),
@@ -129,17 +112,11 @@ export class BodyPose {
       filter.reset();
       if (this.raw[axis] !== null) filter.update(this.raw[axis], this.seen);
     }
-    this.stageNeutral = this.stagePoint ? { ...this.stagePoint } : null;
-    this.stageFiltered = { x: 0, y: 0 }; this.stage = { ...STAGE_ZERO };
-    for (const filter of Object.values(this.stageFilters)) { filter.reset(); filter.update(0, this.seen); }
     this.filtered = { ...this.raw };
     return true;
   }
   reset() {
     this.raw = null; this.filtered = null; this.neutral = null;
-    this.stagePoint = this.stageNeutral = null; this.stage = { ...STAGE_ZERO };
-    this.stageFiltered = { x: 0, y: 0 };
-    for (const filter of Object.values(this.stageFilters)) filter.reset();
     this.seen = -Infinity; this.interval = 100; this.weight = 0; this.params = { ...NEUTRAL };
     for (const filter of Object.values(this.filters)) filter.reset();
     this.detection = inspectBody({ landmarks: [], worldLandmarks: [] });
@@ -151,12 +128,10 @@ export class BodyPose {
   }
   /** @param {number} now */
   diagnostics(now) {
-    return { ...this.detection, filtered: this.filtered, interval: this.interval,
-      stage: Object.fromEntries(Object.entries(this.stage).map(([key, value]) => [key, value * this.weight])),
-      delta: this.detection.raw ? this.delta() : null, age: now - this.seen,
+    return { ...this.detection, filtered: this.filtered, interval: this.interval, delta: this.detection.raw ? this.delta() : null, age: now - this.seen,
       weakest: this.detection.visibility.reduce((a, b) => a.value <= b.value ? a : b) };
   }
-  /** @param {number} now @param {number} dt @param {import("./tracking.js").TrackingOptions & { stage?: boolean, moveStrength?: number, rotationStrength?: number }} options */
+  /** @param {number} now @param {number} dt @param {import("./tracking.js").TrackingOptions} options */
   sample(now, dt, options) {
     const tracking = !!this.raw && !!this.neutral && now - this.seen <= 500;
     const target = { ...NEUTRAL };
@@ -171,27 +146,13 @@ export class BodyPose {
     const tau = tracking ? bodyTimeConstant(options.smoothing, this.interval) : 0.2;
     const alpha = 1 - Math.exp(-Math.max(0, dt) / tau);
     for (const key of Object.keys(target)) this.params[key] += alpha * (target[key] - this.params[key]);
-    const stageTarget = { ...STAGE_ZERO };
-    if (tracking && options.stage && delta) {
-      const mirror = options.mirror ? -1 : 1;
-      const move = clamp(options.moveStrength ?? 1, 0, 2);
-      stageTarget.x = clamp(this.stageFiltered.x * 0.22 * move * mirror, -STAGE_LIMITS.x, STAGE_LIMITS.x);
-      stageTarget.y = clamp(this.stageFiltered.y * 0.18 * move, -STAGE_LIMITS.y, STAGE_LIMITS.y);
-      stageTarget.rot = clamp(delta.roll * 0.45 * clamp(options.rotationStrength ?? 1, 0, 2) * mirror, -STAGE_LIMITS.rot, STAGE_LIMITS.rot);
-    }
-    for (const key of Object.keys(stageTarget)) {
-      this.stage[key] = options.stage ? this.stage[key] + alpha * (stageTarget[key] - this.stage[key]) : 0;
-    }
     if (!tracking) {
-      this.stageNeutral = null;
-      for (const filter of Object.values(this.stageFilters)) filter.reset();
       this.filtered = null; this.neutral = null;
       for (const filter of Object.values(this.filters)) filter.reset();
     }
     this.weight = tracking ? 1 : this.weight * Math.exp(-Math.max(0, dt) / 0.2);
     if (this.weight < 0.005) this.weight = 0;
-    return { tracking, params: { ...this.params }, weight: this.weight,
-      stage: Object.fromEntries(Object.entries(this.stage).map(([key, value]) => [key, options.stage ? value * this.weight : 0])) };
+    return { tracking, params: { ...this.params }, weight: this.weight };
   }
 }
 

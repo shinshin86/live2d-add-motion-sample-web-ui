@@ -6,11 +6,8 @@ const clampScale = (/** @type {number} */ value) => Math.min(MAX_SCALE, Math.max
 /**
  * @param {any} app Pixi application @param {any} model Live2D model
  * @param {string} modelPath @param {URLSearchParams} params
- * @param {() => {x: number, y: number}} [stageOffset]
  */
-export function attachStreamView(app, model, modelPath, params, stageOffset = () => ({x: 0, y: 0})) {
-  const placementPoint = (/** @type {{x: number, y: number}} */ point) => ({
-    x: point.x - stageOffset().x * app.screen.width, y: point.y - stageOffset().y * app.screen.height });
+export function attachStreamView(app, model, modelPath, params) {
   const key = `live2d-stream-view:${new URL(modelPath, location.href).href}`;
   const initial = { x: 0.5, y: 0.55, zoom: 1 };
   /** @type {Partial<{ x: number, y: number, zoom: number }>} */
@@ -58,13 +55,11 @@ export function attachStreamView(app, model, modelPath, params, stageOffset = ()
   /** @type {{ dx: number, dy: number } | null} */
   let drag = null;
   model.on("pointerdown", (/** @type {any} */ e) => {
-    const point = placementPoint(e.data.global);
-    drag = { dx: point.x - model.x, dy: point.y - model.y };
+    drag = { dx: e.data.global.x - model.x, dy: e.data.global.y - model.y };
   });
   model.on("pointermove", (/** @type {any} */ e) => {
     if (!drag) return;
-    const point = placementPoint(e.data.global);
-    model.position.set(point.x - drag.dx, point.y - drag.dy);
+    model.position.set(e.data.global.x - drag.dx, e.data.global.y - drag.dy);
     remember();
   });
   model.on("pointerup", () => { drag = null; });
@@ -73,9 +68,8 @@ export function attachStreamView(app, model, modelPath, params, stageOffset = ()
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const point = placementPoint({ x: (e.clientX - rect.left) * app.screen.width / rect.width,
-      y: (e.clientY - rect.top) * app.screen.height / rect.height });
-    const mx = point.x, my = point.y;
+    const mx = (e.clientX - rect.left) * app.screen.width / rect.width;
+    const my = (e.clientY - rect.top) * app.screen.height / rect.height;
     const base = model.scale.x;
     const next = clampScale(base * Math.exp(-e.deltaY * 0.002));
     const factor = next / base;

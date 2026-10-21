@@ -4,18 +4,17 @@
 // sent; camera frames and microphone audio never leave the control page.
 //
 // Messages:
-//   { type: "pose", face: FaceParams | null, weight: 0..1, mouth: 0..1 | null, stage?: {x, y, rot} }
+//   { type: "pose", face: FaceParams | null, weight: 0..1, mouth: 0..1 | null }
 //   { type: "motion", group: string, index: number }
 //   { type: "stop" }
 //   { type: "expression", name: string | null } (file stem; null clears)
 //   { type: "model", name: string } (server notification only)
 
-import { stageMessage } from "./body-stage.js";
 import { FACE_NEUTRAL } from "./tracking.js";
 
 /** @typedef {import("./tracking.js").FaceParams} FaceParams */
 /**
- * @typedef {{ type: "pose", face: FaceParams | null, weight: number, mouth: number | null, stage?: {x: number, y: number, rot: number} }} PoseMessage
+ * @typedef {{ type: "pose", face: FaceParams | null, weight: number, mouth: number | null }} PoseMessage
  * @typedef {{ type: "expression", name: string | null }} ExpressionMessage
  * @typedef {PoseMessage | ExpressionMessage | { type: "motion", group: string, index: number } | { type: "stop" }} ControlMessage
  * @typedef {ControlMessage | { type: "model", name: string }} RelayMessage
@@ -108,9 +107,7 @@ export function relayMessage(input) {
         face.bodyAngleY = value;
       }
     }
-    const stage = data.stage === undefined ? undefined : stageMessage(data.stage);
-    if (stage === null) return null;
-    return { type: "pose", ...(stage ? {stage} : {}), face, weight: finite(data.weight, 0, 1) ?? 0, mouth: finite(data.mouth, 0, 1) };
+    return { type: "pose", face, weight: finite(data.weight, 0, 1) ?? 0, mouth: finite(data.mouth, 0, 1) };
   }
   return null;
 }
