@@ -17,6 +17,7 @@ export function attachModelSwitch(relayOn, modelPath, blocked, notice) {
     notice("モデルが切り替わりました。再読み込みします");
     const url = new URL(location.href);
     url.searchParams.delete("model");
+    url.searchParams.delete("expression");
     if (url.href === location.href) location.reload();
     else location.replace(url.href);
   }

@@ -17,10 +17,13 @@ Checks:
     tangents could bulge past the keys)
  8. warning only: loop Actions animating a LipSync-group parameter
     (the player's lip sync fights over it while speaking)
+ 9. registered exp3 expressions: schema, blends, finite values, parameter IDs,
+    physics outputs and values applied to the base pose within safe ranges
 
-For models that ship without any motions, checks 4 and 5 are skipped with a
-warning. Visual verification in the browser is then the only quality gate,
-so perform it extra carefully.
+Parameters absent from shipped motions use conservative conventional ranges
+when their standard ID is known. Custom IDs need observed ranges; without any
+reference motions they retain the legacy warning-only path. Verify those rigs
+extra carefully in a browser.
 
 Usage: python3 tools/validate_motions.py [runtime dir]
 (without an argument, the model registered in model.config.json is used)
@@ -29,7 +32,9 @@ Exit code: 0 = pass / 1 = violations found
 import collections
 import glob
 import json
+import math
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -122,12 +127,98 @@ def sampled_values(curve, steps=8):
     return out
 
 
+def conventional_reference(pid):
+    """Conservative fallback for standard parameters absent from shipped motions.
+
+    Custom IDs need a reference motion; guessing a range for an unknown rig is
+    unsafe. This deliberately does not use the generator's range code."""
+    if re.fullmatch(r"ParamAngle[XYZ]", pid):
+        return 0, (-30, 30)
+    if re.fullmatch(r"ParamBodyAngle[XYZ]", pid):
+        return 0, (-10, 10)
+    if pid in ("ParamEyeLOpen", "ParamEyeROpen"):
+        return 1, (0, 1)
+    if pid in ("ParamEyeLSmile", "ParamEyeRSmile", "ParamMouthOpenY", "ParamCheek", "ParamBreath"):
+        return 0, (0, 1)
+    if pid in ("ParamEyeBallX", "ParamEyeBallY", "ParamMouthForm") or re.fullmatch(r"ParamBrow[LR](?:X|Y|Angle|Form)", pid):
+        return 0, (-1, 1)
+    return None
+
+
+def validate_expressions(runtime, model3, base_pose, safe):
+    """Validate the registered exp3 files without importing generation code."""
+    errors, seen_names, seen_files = [], set(), set()
+    refs = model3.get("FileReferences", {})
+    cdi = refs.get("DisplayInfo")
+    cdi_files = [os.path.join(runtime, cdi)] if cdi else glob.glob(os.path.join(runtime, "*.cdi3.json"))
+    available = {p["Id"] for p in json.load(open(cdi_files[0]))["Parameters"]} if cdi_files else None
+    physics = refs.get("Physics")
+    physics_files = [os.path.join(runtime, physics)] if physics else glob.glob(os.path.join(runtime, "*.physics3.json"))
+    outputs = {o["Destination"]["Id"] for file in physics_files
+               for setting in json.load(open(file)).get("PhysicsSettings", []) for o in setting.get("Output", [])}
+
+    def number(value):
+        return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+    entries = refs.get("Expressions", [])
+    if not isinstance(entries, list):
+        return ["Expressions: expected an array"]
+    for entry in entries:
+        if not isinstance(entry, dict) or not all(isinstance(entry.get(key), str) and entry[key].strip() for key in ("Name", "File")):
+            errors.append("Expressions: each entry needs a nonempty Name and File")
+            continue
+        name, file = entry["Name"], entry["File"]
+        if name in seen_names or os.path.normpath(file) in seen_files:
+            errors.append(f"{file}: duplicate expression name or file")
+        seen_names.add(name)
+        seen_files.add(os.path.normpath(file))
+        try:
+            with open(os.path.join(runtime, file)) as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as exc:
+            errors.append(f"{file}: cannot read expression ({exc})")
+            continue
+        if not isinstance(data, dict) or data.get("Type") != "Live2D Expression" or not isinstance(data.get("Parameters"), list):
+            errors.append(f"{file}: expected Type 'Live2D Expression' and a Parameters array")
+            continue
+        for key in ("FadeInTime", "FadeOutTime"):
+            value = data.get(key, 1.0)  # omitted fades use the Cubism default
+            if not number(value) or value < 0:
+                errors.append(f"{file}: {key} must be a finite nonnegative number")
+        seen_params = set()
+        for param in data["Parameters"]:
+            if not isinstance(param, dict) or not isinstance(param.get("Id"), str) or not param["Id"]:
+                errors.append(f"{file}: parameter needs a nonempty Id")
+                continue
+            pid, value, blend = param["Id"], param.get("Value"), param.get("Blend", "Add")
+            if pid in seen_params:
+                errors.append(f"{file}:{pid}: duplicate parameter")
+            seen_params.add(pid)
+            if available is not None and pid not in available:
+                errors.append(f"{file}:{pid}: parameter does not exist in this model")
+            if pid in outputs:
+                errors.append(f"{file}:{pid}: physics output must not be driven by expressions")
+            if not number(value) or blend not in ("Add", "Multiply", "Overwrite"):
+                errors.append(f"{file}:{pid}: expected a finite Value and Blend Add / Multiply / Overwrite")
+                continue
+            reference = (base_pose[pid], safe[pid]) if pid in safe else conventional_reference(pid)
+            if reference is None:
+                errors.append(f"{file}:{pid}: no observed or conventional range; add a reference motion")
+                continue
+            base, (lo, hi) = reference
+            result = base + value if blend == "Add" else base * value if blend == "Multiply" else value
+            if not lo - EPS <= result <= hi + EPS:
+                errors.append(f"{file}:{pid}: {blend} applied to base {base} gives {result}, outside [{lo},{hi}]")
+        print(f"checked {file}: expression parameters={len(data['Parameters'])}")
+    return errors
+
+
 def main():
     model3_path = glob.glob(os.path.join(RUNTIME, "*.model3.json"))[0]
     model3 = json.load(open(model3_path))
-    entries = model3["FileReferences"]["Motions"].get(GROUP, [])
-    if not entries:
-        print(f"NG: model3.json has no {GROUP} group")
+    entries = model3.get("FileReferences", {}).get("Motions", {}).get(GROUP, [])
+    if not entries and not model3.get("FileReferences", {}).get("Expressions"):
+        print(f"NG: model3.json has no {GROUP} motions or expressions")
         return 1
     lipsync_ids = {pid for g in model3.get("Groups", []) if g.get("Name") == "LipSync"
                    for pid in g.get("Ids", [])}
@@ -137,7 +228,11 @@ def main():
     # so search recursively instead of assuming a directory name
     all_files = set(os.path.normpath(f) for f in
                     glob.glob(os.path.join(RUNTIME, "**", "*.motion3.json"), recursive=True))
-    existing = sorted(all_files - set(os.path.normpath(f) for f in new_files))
+    shared_ledger = os.path.join(RUNTIME, ".generated-shared-motions.json")
+    shared_files = json.load(open(shared_ledger)) if os.path.exists(shared_ledger) else []
+    generated = {os.path.normpath(f) for f in new_files}
+    generated.update(os.path.normpath(os.path.join(RUNTIME, file)) for file in shared_files)
+    existing = sorted(all_files - generated)
 
     # Observe safe value ranges and the base pose (majority first-frame value)
     # from the pre-existing motions
@@ -154,12 +249,11 @@ def main():
             first_vals[c["Id"]][round(pts[0][1], 3)] += 1
     base_pose = {pid: cnt.most_common(1)[0][0] for pid, cnt in first_vals.items()}
 
-    has_reference = bool(existing)
-    if not has_reference:
-        print("WARN: this model has no pre-existing motions; skipping the range and base-pose checks.")
+    if not existing:
+        print("WARN: this model has no pre-existing motions; using conservative ranges/base poses for standard IDs.")
         print("WARN: be sure to verify visually in the browser.")
 
-    errors = []
+    errors = validate_expressions(RUNTIME, model3, base_pose, safe)
     warnings = []
     for f in new_files:
         name = os.path.basename(f)
@@ -192,21 +286,24 @@ def main():
                     errors.append(f"{name}:{pid}: loop seam jerks: end slope {s_end:.3f}/s != start slope {s_start:.3f}/s")
                 if pid in lipsync_ids:
                     warnings.append(f"{name}:{pid}: loop Action animates a LipSync parameter; it will fight the player's lip sync while speaking")
-            if c["Target"] != "Parameter" or not has_reference:
+            if c["Target"] != "Parameter":
                 continue
-            if pid not in safe:
-                errors.append(f"{name}:{pid}: parameter never used by the existing motions (check its range; keep only if deliberate)")
-            else:
-                lo, hi = safe[pid]
-                for t, v in pts:
-                    if not (lo - EPS <= v <= hi + EPS):
-                        errors.append(f"{name}:{pid}: value {v} (t={t}) outside the observed range [{lo},{hi}]")
-                bulge = [v for v in sampled_values(c) if not (lo - 1e-3 <= v <= hi + 1e-3)]
-                if bulge:
-                    errors.append(f"{name}:{pid}: the curve between keys reaches {max(bulge, key=abs):.3f}, outside the observed range [{lo},{hi}]")
+            reference = (base_pose.get(pid, 0), safe[pid]) if pid in safe else conventional_reference(pid)
+            if reference is None:
+                if existing:
+                    errors.append(f"{name}:{pid}: no observed or conventional range; add a reference motion")
+                else:
+                    warnings.append(f"{name}:{pid}: custom parameter has no reference; range/base pose not checked")
+                continue
+            base, (lo, hi) = reference
+            for t, v in pts:
+                if not (lo - EPS <= v <= hi + EPS):
+                    errors.append(f"{name}:{pid}: value {v} (t={t}) outside the safe range [{lo},{hi}]")
+            bulge = [v for v in sampled_values(c) if not (lo - 1e-3 <= v <= hi + 1e-3)]
+            if bulge:
+                errors.append(f"{name}:{pid}: the curve between keys reaches {max(bulge, key=abs):.3f}, outside the safe range [{lo},{hi}]")
             if loop:
                 continue  # a loop may idle anywhere; its seam is checked above
-            base = base_pose.get(pid, 0)
             if abs(pts[0][1] - base) > EPS:
                 errors.append(f"{name}:{pid}: first value {pts[0][1]} != base pose {base}")
             if abs(pts[-1][1] - base) > EPS:
@@ -226,7 +323,8 @@ def main():
         print("\n".join(errors))
         print(f"NG: {len(errors)} violations")
         return 1
-    print(f"OK: all checks passed for {len(new_files)} motions in the {GROUP} group")
+    print(f"OK: all checks passed for {len(new_files)} motions in the {GROUP} group"
+          f" and {len(model3.get('FileReferences', {}).get('Expressions', []))} expressions")
     return 0
 
 

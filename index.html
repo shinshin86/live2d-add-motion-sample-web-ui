@@ -145,13 +145,20 @@
     .tool-card .card-title small { font-weight: 400; color: #8f95ac; margin-left: 6px; }
     .tool-card .note { font-size: 10px; color: #8f95ac; min-height: 1em; line-height: 1.6; overflow-wrap: anywhere; }
     .tool-card > * { min-width: 0; }
+    .recorded-item { display: grid; gap: 4px; }
+    .recorded-item .action { padding: 4px; }
+    #recordingEditor fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; min-width: 0; }
+    #recordingEditor label:not(.check) { display: grid; grid-template-columns: 6em 1fr; align-items: center; font-size: 11px; }
+    #recordingEditor input[type="number"] { width: 100%; box-sizing: border-box; min-width: 0; padding: 5px; color: #eef0ff; background: #1f2130; border: 1px solid #565c85; border-radius: 5px; }
+    #editDeleteConfirm { border: 1px solid #ff9f8f; padding: 8px; font-size: 11px; border-radius: 7px; }
     .tool-card .note.warn { color: #ffb6a9; }
     .choices { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
-    .choices button, .tool-card .action {
+    #expressionButtons { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .choices button, .tool-card .action, .recorded-item .action {
       padding: 6px 2px; font-size: 11px; color: #cfd3e6; cursor: pointer;
       background: #2c2f44; border: 1px solid #565c85; border-radius: 7px;
     }
-    .choices button:hover, .tool-card .action:hover:not(:disabled) { background: #3a3f63; }
+    .choices button:hover, .tool-card .action:hover:not(:disabled), .recorded-item .action:hover:not(:disabled) { background: #3a3f63; }
     .tool-card .action:disabled { opacity: 0.35; cursor: default; }
     .choices button[aria-pressed="true"], .tool-card .action.on {
       color: #1f2130; background: #7fd6b0; border-color: #7fd6b0; font-weight: 600;
@@ -222,6 +229,12 @@
       <button role="tab" id="tab-camera" data-tab="camera" aria-selected="false" aria-controls="tabpanel-camera">カメラ</button>
     </div>
     <div class="tabpanel" id="tabpanel-motion" role="tabpanel" aria-labelledby="tab-motion">
+    <div id="expressionPanel" class="tool-card" hidden>
+      <div class="card-title">表情<small>モーションに重ねて使えます</small></div>
+      <div id="expressionButtons" class="choices" aria-label="表情"></div>
+      <button id="resetExpression" class="action" disabled>表情リセット</button>
+      <div id="expressionNote" class="note" role="status" aria-live="polite">同じ表情をもう一度押すと解除します</div>
+    </div>
     <div id="lipsyncPanel" class="tool-card">
       <div class="card-title">リップシンク<small>どの表情・ループにも重ねられます</small></div>
       <div id="lipsyncModes" class="choices">
@@ -259,6 +272,7 @@
       <div class="card-title">保存したモーション <span class="badge">カメラで録画</span></div>
       <div class="section-hint">「カメラ」タブで録画して保存したモーションです</div>
       <div class="grid" id="recordedButtons"></div>
+      <div id="recordingEditor" class="tool-card" hidden></div>
     </div>
     <div id="buttons"></div>
     <details id="hotkeySettings" class="tool-card">
@@ -292,7 +306,7 @@
     </div>
     <div class="tabpanel" id="tabpanel-camera" role="tabpanel" aria-labelledby="tab-camera" hidden>
     <div id="cameraPanel" class="tool-card">
-      <div class="card-title">カメラ<small>顔の動きでアバターを動かします</small></div>
+      <div class="card-title">カメラ<small>顔や体の動きでアバターを動かします</small></div>
       <div class="choices">
         <button id="cameraToggle" class="action">● カメラ開始</button>
         <button id="calibrate" class="action" disabled>正面をリセット</button>
@@ -300,9 +314,14 @@
       <video id="cameraPreview" muted playsinline hidden></video>
       <div id="previewHidden" hidden>映像は非表示です(トラッキングは動作中)</div>
       <button id="previewToggle" class="action" hidden>映像を隠す</button>
-      <label class="slider">感度 <input type="range" id="sensitivity" min="0.25" max="3" step="0.05" value="1.5"></label>
+      <label class="slider">顔の感度 <input type="range" id="sensitivity" min="0.25" max="3" step="0.05" value="1.5"></label>
       <label class="slider">なめらかさ <input type="range" id="smoothing" min="0" max="1" step="0.05" value="0.35"></label>
       <label class="check"><input type="checkbox" id="mirror" checked> 鏡のように動かす(左右反転)</label>
+      <label class="check"><input type="checkbox" id="bodyTracking"> 上半身も動かす</label>
+      <label class="slider">上半身の感度 <input type="range" id="bodySensitivity" min="0.25" max="3" step="0.05" value="1"></label>
+      <div id="bodyNote" class="note">上半身はOFFです。ONにする場合は両肩を映してください。腰も映ると前後の傾きを使えます。腕は動かしません。</div>
+      <label class="check"><input type="checkbox" id="bodyDebugToggle"> 数値を表示</label>
+      <pre id="bodyDebug" class="note" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px"></pre>
       <div id="cameraNote" class="note">カメラ映像はブラウザの中だけで処理され、外部には送信されません</div>
       <div id="recordBox" hidden>
         <div class="section-title">演技を録画してモーションにする</div>
@@ -322,7 +341,7 @@
             <button id="recordDiscard" class="action">破棄</button>
           </div>
         </div>
-        <div id="recordNote" class="note">顔の動きを最長60秒録画できます</div>
+        <div id="recordNote" class="note">動きを最長60秒録画できます</div>
         <button id="recordReload" class="action" hidden>再読み込みして表示</button>
       </div>
     </div>
@@ -358,9 +377,16 @@
     import "./web/verify-hold.js";
     import { startBackgroundClock } from "./web/background-clock.js";
     import { CameraCapture } from "./web/camera.js";
+    import { BodyCapture } from "./web/body-camera.js";
+    import { BodyPose, combineBody } from "./web/body-tracking.js";
+    import { loadBodyLimits } from "./web/body-model.js";
+    import { attachBodyDebug } from "./web/body-debug.js";
+    import { startFakeBody } from "./web/fake-body.js";
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
     import { createMotionPlayer } from "./web/motion-player.js";
+    import { attachExpressions, expressionId } from "./web/expressions.js";
+    import { attachRecordingEditor } from "./web/recording-editor.js";
     import { attachHotkeys } from "./web/hotkeys.js";
     import { attachMotionRemote } from "./web/motion-remote.js";
     import { attachModelSwitch } from "./web/model-switch.js";
@@ -389,6 +415,7 @@
 
     async function main() {
       const MODEL_JSON = await resolveModelJson();
+      const params = new URLSearchParams(location.search);
       const stage = document.getElementById("stage");
       const app = new PIXI.Application({
         backgroundAlpha: 0,
@@ -462,9 +489,38 @@
       // Loop playback lives in web/motion-player.js (shared with stream.html)
       const player = createMotionPlayer(model);
       const isLoopMotion = player.isLoopMotion;
-      // Streaming: motion commands and the face/mouth go to stream.html through tools/serve.py
       const relayOn = await relayAvailable();
+      // Register before the lip-sync listener: speech always owns mouth opening.
+      const expressions = attachExpressions(model);
+      const expressionButtons = [];
+      const expressionNote = document.getElementById("expressionNote");
+      const resetExpression = document.getElementById("resetExpression");
+      let expressionRequest = 0;
+      async function selectExpression(index) {
+        const request = ++expressionRequest;
+        try {
+          if (!await expressions.select(index) || request !== expressionRequest) return;
+          expressionButtons.forEach((button, i) => button.setAttribute("aria-pressed", String(i === index)));
+          resetExpression.disabled = index < 0;
+          expressionNote.textContent = index < 0 ? "表情を解除しました" : `表情: ${expressions.entries[index].Name}`;
+          if (relayOn) sendRelay({ type: "expression", name: index < 0 ? null : expressionId(expressions.entries[index]) });
+        } catch (error) {
+          if (request === expressionRequest) expressionNote.textContent = error.message;
+        }
+      }
+      document.getElementById("expressionPanel").hidden = !expressions.entries.length;
+      expressions.entries.forEach((entry, index) => {
+        const button = document.createElement("button");
+        button.textContent = entry.Name;
+        button.setAttribute("aria-pressed", "false");
+        button.onclick = () => void selectExpression(expressions.selected === index ? -1 : index);
+        expressionButtons.push(button);
+        document.getElementById("expressionButtons").appendChild(button);
+      });
+      resetExpression.onclick = () => void selectExpression(-1);
+      // Streaming: motions, expressions and the face/mouth use tools/serve.py.
       let current = null; // the running loop: { motion, label, duration, startedAt }
+      let previewing = false;
       let frozen = false; // set by the &freeze= debug hook
       const stopLoop = document.getElementById("stopLoop");
       const buttons = {}; // "group:index" -> motion button
@@ -482,6 +538,7 @@
         stopLoop.disabled = !(key && loop);
       }
       async function playMotion(group, index, label) {
+        previewing = false;
         actionNotice = false;
         const { ok, loop, motion } = await player.play(group, index);
         if (ok && relayOn) sendRelay({ type: "motion", group, index });
@@ -493,6 +550,7 @@
       }
       // Stop now: the idle fades in from the current pose
       function returnToIdle() {
+        previewing = false;
         actionNotice = false;
         current = null;
         player.stop();
@@ -614,7 +672,7 @@
         return Math.min(1, Math.max(0, (rms - 0.02) * 6)); // ignore room noise, speech ~0.1 -> ~0.5
       }
       model.internalModel.on("beforeModelUpdate", () => {
-        if (lipsync.mode === "off") {
+        if (previewing || lipsync.mode === "off") {
           meter.style.width = "0";
           return;
         }
@@ -626,7 +684,8 @@
       // ---- Camera face tracking (web/tracking.js, web/camera.js): frames are
       // processed in a worker inside the browser; only face parameters come back.
       const facePose = new FacePose();
-      const faceDriver = attachFaceDriver(model);
+      const bodyBounds = await loadBodyLimits(model, MODEL_JSON);
+      const faceDriver = attachFaceDriver(model, bodyBounds.ranges);
       const preview = document.getElementById("cameraPreview");
       const cameraToggle = document.getElementById("cameraToggle");
       const calibrateButton = document.getElementById("calibrate");
@@ -645,6 +704,24 @@
       let cameraState = "stopped";
       let calibrated = false;
       let stopFake = null;
+      let stopFakeBody = null;
+      const bodyPose = new BodyPose(bodyBounds.limits);
+      const bodyToggle = document.getElementById("bodyTracking");
+      const bodySensitivity = document.getElementById("bodySensitivity");
+      const bodyNote = document.getElementById("bodyNote");
+      const bodyDebugToggle = document.getElementById("bodyDebugToggle");
+      bodyDebugToggle.checked = params.get("bodydebug") === "1";
+      const updateBodyDebug = attachBodyDebug(bodyDebugToggle, document.getElementById("bodyDebug"), bodyPose, bodyBounds);
+      let bodyState = "off";
+      const bodyCapture = new BodyCapture(preview, (result, now, aspect) => bodyPose.update(result, now, aspect), state => {
+        bodyState = state;
+        if (state === "off" || state === "error") bodyPose.reset();
+      });
+      function updateBodyCapture() {
+        if (bodyToggle.checked && cameraState === "running" && !stopFakeBody) bodyCapture.start();
+        else bodyCapture.stop();
+      }
+      bodyToggle.onchange = () => { bodyPose.reset(); updateBodyCapture(); };
       const onFace = (result, now) => {
         facePose.update(result, now);
         // the first face seen becomes the neutral, front-facing face
@@ -664,6 +741,7 @@
           facePose.reset();
           calibrated = false;
         }
+        updateBodyCapture();
       });
       cameraToggle.onclick = () => {
         if (cameraState === "starting" || cameraState === "running") camera.stop();
@@ -671,6 +749,7 @@
       };
       calibrateButton.onclick = () => {
         if (facePose.calibrate(performance.now())) cameraNote.textContent = "今の顔の向きを正面にしました";
+        bodyPose.calibrate(performance.now());
       };
       mirror.onchange = () => preview.classList.toggle("unmirrored", !mirror.checked);
 
@@ -761,19 +840,21 @@
       const recordReload = document.getElementById("recordReload");
       recordReload.onclick = () => {
         const url = new URL(location.href);
-        for (const key of ["record", "recordloop", "recordname", "camera", "fakeface", "play", "freeze", "hold"]) url.searchParams.delete(key);
+        for (const key of ["record", "recordloop", "recordname", "camera", "fakeface", "fakebody", "bodytime", "body", "play", "freeze", "hold"]) url.searchParams.delete(key);
         url.searchParams.set("tab", "motion");
         location.href = url.href;
       };
       let savingRecording = false;
       let pendingRecording = null;
+      let recordingEditor = null;
       const modelChanged = attachModelSwitch(relayOn, MODEL_JSON, () => {
         if (recorder.recording) return "録画中はモデルを切り替えられません。録画を停止して保存または破棄してください";
         if (savingRecording) return "録画の保存が終わるまでモデルを切り替えられません";
         if (pendingRecording) return "未保存の録画があります。保存または破棄してからモデルを切り替えてください";
-        return null;
+        return recordingEditor?.blocked() || null;
       }, (text) => { actionNotice = true; status.textContent = text; });
       function stopRecording() {
+        bodyToggle.disabled = false;
         const now = new Date();
         const rec = recorder.stop({ id: recordingId(now), label: "", loop: false, recordedAt: recordingTimestamp(now) });
         recordToggle.textContent = "● 録画開始";
@@ -793,6 +874,11 @@
         return rec;
       }
       recordToggle.onclick = () => {
+        if (recordingEditor?.active) {
+          recordNote.textContent = "録画の編集を閉じてから録画してください";
+          recordNote.classList.add("warn");
+          return;
+        }
         if (recorder.recording) {
           stopRecording();
           return;
@@ -800,6 +886,7 @@
         pendingRecording = null;
         recordSave.hidden = true;
         recorder.start(performance.now());
+        bodyToggle.disabled = true;
         recordToggle.classList.add("on");
       };
       async function savePendingRecording() {
@@ -855,6 +942,25 @@
         recordSave.hidden = true;
         recordNote.textContent = "録画を破棄しました";
       };
+      function stopPreview() {
+        if (!previewing) return;
+        previewing = false; current = null;
+        player.stop(); showPlaying(null, false);
+        status.textContent = "試再生を停止しました";
+      }
+      recordingEditor = attachRecordingEditor({
+        root: document.getElementById("recordingEditor"), model: modelStem, server: relayOn,
+        blocked: () => recorder.recording || savingRecording || pendingRecording ? "録画の停止・保存または破棄を済ませてから編集してください" : null,
+        stop: stopPreview,
+        preview: async (data, label) => {
+          const { ok, loop, motion } = await player.preview(data);
+          if (!ok) throw new Error("試再生を開始できませんでした");
+          previewing = true; actionNotice = false;
+          current = loop ? { motion, label: `試再生: ${label}`, duration: motion.getLoopDuration(), startedAt: performance.now() } : null;
+          showPlaying(null, false);
+          status.textContent = `試再生: ${label} (${data.Meta.Duration.toFixed(2)} 秒)`;
+        },
+      });
 
       // ---- Streaming mode: stream.html shows only the avatar for OBS
       const streamUrl = document.getElementById("streamUrl");
@@ -887,7 +993,7 @@
       document.getElementById("openStream").onclick = () => window.open(streamUrl.value, "_blank");
       updateStreamUrl();
       streamNote.textContent = relayOn
-        ? "このページで再生したモーション・カメラ・リップシンクが配信ページに反映されます"
+        ? "このページで選んだ表情・モーション・カメラ・リップシンクが配信ページに反映されます"
         : "配信モードを使うには python3 tools/serve.py でサーバーを起動してください";
       streamNote.classList.toggle("warn", !relayOn);
       document.getElementById("streamConnection").hidden = !relayOn;
@@ -916,12 +1022,12 @@
       let lastFrame = performance.now();
       let liveFace = null;
       let liveWeight = 0;
-      app.ticker.add(() => faceDriver.set(liveFace, liveWeight));
+      app.ticker.add(() => faceDriver.set(previewing ? null : liveFace, previewing ? 0 : liveWeight));
       let sentIdle = true;
       startBackgroundClock((now) => {
         const dt = (now - lastFrame) / 1000;
         lastFrame = now;
-        const tracking = cameraState === "running" || stopFake;
+        const tracking = cameraState === "running" || stopFake || stopFakeBody;
         let face = null;
         let weight = 0;
         if (tracking || facePose.weight > 0) {
@@ -934,6 +1040,20 @@
             cameraNote.textContent = sampled.tracking ? CAMERA_NOTES.running : "顔が見つかりません(カメラの正面に顔を入れてください)";
           }
         }
+        const faceOnly = face, faceWeight = weight;
+        if (bodyToggle.checked) {
+          const body = bodyPose.sample(now, dt, { mirror: mirror.checked, sensitivity: Number(bodySensitivity.value), smoothing: Number(smoothing.value) });
+          const combined = combineBody(face, weight, body, bodyBounds.limits);
+          face = combined.params; weight = combined.weight;
+          bodyNote.textContent = bodyState === "error" ? "上半身の検出を開始できません。OFFにしてからもう一度ONにしてください。顔の検出は続いています。" :
+            bodyState === "loading" ? "上半身の検出を準備しています…" : body.tracking ?
+              bodyPose.raw?.pitch === null ? "肩をトラッキング中（腰が見えないため前後の傾きは使いません）" : "肩と腰をトラッキング中" : "両肩が見えるようにカメラに入ってください";
+          bodyNote.classList.toggle("warn", bodyState === "error");
+        } else {
+          bodyNote.textContent = "上半身はOFFです。ONにする場合は両肩を映してください。腰も映ると前後の傾きを使えます。腕は動かしません。";
+          bodyNote.classList.remove("warn");
+        }
+        updateBodyDebug(now, bodyToggle.checked, bodyState, faceOnly, faceWeight, face, weight);
         liveFace = weight > 0 ? face : null;
         liveWeight = weight;
         if (lipsync.mode !== "off") {
@@ -1004,11 +1124,19 @@
       newEntries.forEach((entry, index) => {
         const btn = motionButton(NEW_GROUP, entry, index);
         const recorded = entry.File.includes("/recorded/");
-        (recorded ? recordedButtons : newLoops[index] ? loopButtons : newButtons).appendChild(btn);
+        if (recorded) {
+          const item = document.createElement("div"); item.className = "recorded-item";
+          const edit = document.createElement("button"); edit.className = "action"; edit.textContent = "編集";
+          const id = entry.File.split("/").pop().replace(/\.motion3\.json$/, "");
+          edit.setAttribute("aria-label", `${entry.Name || id}を編集`);
+          edit.onclick = () => void recordingEditor.open(id, entry.Name || id);
+          item.append(btn, edit); recordedButtons.appendChild(item);
+        } else (newLoops[index] ? loopButtons : newButtons).appendChild(btn);
       });
       const isRecorded = (entry) => entry.File.includes("/recorded/");
       document.getElementById("loopSection").hidden = !newEntries.some((e, i) => newLoops[i] && !isRecorded(e));
       document.getElementById("recordedActions").hidden = !newEntries.some(isRecorded);
+      if (location.hash === "#recordedActions") document.getElementById("recordedActions").scrollIntoView();
 
       // Stable IDs in visible order: one-shots, loops, then camera recordings.
       const actions = newEntries.map((entry, index) => ({
@@ -1063,6 +1191,7 @@
       }
 
       model.internalModel.motionManager.on("motionFinish", () => {
+        previewing = false;
         current = null;
         showPlaying(null, false);
         status.textContent = "アイドル中(Idleグループ自動再生)";
@@ -1072,10 +1201,26 @@
       // Debug hooks: ?play=Group:index auto-plays a motion, &freeze=seconds pins the pose at that time,
       // &cycles=N ends a loop motion after its Nth cycle, &lipsync=1 turns on the simulated lip sync
       // (&lipsync=mic: microphone), &audio=<url> lip-syncs to an audio file
-      const params = new URLSearchParams(location.search);
+      const editRecording = params.get("editrecording");
+      if (editRecording) {
+        const entry = newEntries.find(e => isRecorded(e) && e.File.split("/").pop().replace(/\.motion3\.json$/, "") === editRecording);
+        if (entry) await recordingEditor.open(editRecording, entry.Name || editRecording);
+      }
       // &tab=motion|camera opens a tab; otherwise the camera hooks below open the camera tab
+      const expression = params.get("expression");
+      if (expression) {
+        const index = expressions.entries.findIndex(entry => entry.Name === expression ||
+          expressionId(entry) === expression);
+        if (index >= 0) await selectExpression(index);
+        else expressionNote.textContent = `表情が見つかりません: ${expression}`;
+      }
       if (params.get("tab")) selectTab(params.get("tab") === "camera" ? "camera" : "motion");
-      else if (params.get("camera") || params.get("fakeface") || params.get("record")) selectTab("camera");
+      else if (params.get("camera") || params.get("fakeface") || params.get("fakebody") || params.get("bodydebug") || params.get("record")) selectTab("camera");
+      if (params.get("fakebody")) {
+        bodyToggle.checked = params.get("body") !== "0";
+        const time = params.get("bodytime");
+        stopFakeBody = startFakeBody((result, now) => bodyPose.update(result, now), time !== null && Number.isFinite(Number(time)) ? Number(time) : null, params.get("bodyhips") !== "0");
+      }
       // &fakeface=1 drives the face with synthetic tracking results (no camera)
       if (params.get("fakeface")) {
         stopFake = startFakeFace(onFace);

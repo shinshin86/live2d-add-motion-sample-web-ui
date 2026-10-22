@@ -1,12 +1,21 @@
 """Motion definitions for Hiyori (hiyori_pro_t11).
 
 Bundled sample definition — use it as the reference when writing definitions
-for a new model. Format: define(curve, motion) returns (MOTIONS, MANIFEST).
+for a new model. Format: define(curve, motion) returns
+(MOTIONS, MANIFEST, EXPRESSIONS); the third item is optional.
 
 Keyframe values stay within the ranges observed in the model's existing
 motions (see tools/analyze_model.py) and every curve starts from and
 returns to the base pose.
 """
+
+SHARED_MOTIONS = {"gestures": {"nod": {}, "shakehead": {}, "surprised": {}}}
+SHARED_EXPRESSIONS = {"faces": {
+    "smile": {"name": "smile"},
+    "shy": {"name": "shy"},
+    "surprised": {},
+    "glare": {},
+}}
 
 
 def define(curve, motion):
@@ -146,4 +155,25 @@ def define(curve, motion):
         ("hiyori_shy", "照れる", 0.5, 0.5),
         ("hiyori_shakehead", "首ふり", 0.4, 0.5),
     ]
-    return MOTIONS, MANIFEST
+    # Expressions stay on top of any motion until cleared. Keep MouthOpenY
+    # free for speech; Multiply eye openness preserves blinking.
+    EXPRESSIONS = {
+        # The bangs hide the brows and the existing motions have no angry
+        # brows, so this model cannot express anger clearly. Use a sleepy face.
+        "sleepy": {
+            "label": "ねむい", "fade_in": 0.3, "fade_out": 0.4,
+            "parameters": [
+                ("ParamBrowLAngle", -1, "Overwrite"), ("ParamBrowRAngle", -1, "Overwrite"),
+                ("ParamBrowLY", -0.4, "Overwrite"), ("ParamBrowRY", -0.4, "Overwrite"),
+                ("ParamBrowLX", -0.4, "Overwrite"), ("ParamBrowRX", -0.4, "Overwrite"),
+                ("ParamEyeLOpen", 0.5, "Multiply"), ("ParamEyeROpen", 0.5, "Multiply"),
+                ("ParamEyeLSmile", 0, "Overwrite"), ("ParamEyeRSmile", 0, "Overwrite"),
+                ("ParamBrowLForm", -1, "Overwrite"), ("ParamBrowRForm", -1, "Overwrite"),
+                ("ParamCheek", 0, "Overwrite"),
+                # MouthForm=-1 leaves a small "o" even with a closed mouth;
+                # 0 gives a closed, downturned mouth instead.
+                ("ParamMouthForm", 0, "Overwrite"),
+            ],
+        },
+    }
+    return MOTIONS, MANIFEST, EXPRESSIONS

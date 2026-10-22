@@ -60,6 +60,11 @@ python3 tools/serve.py              # serve (add --port 8766 if 8765 is taken)
 
 Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a sample definition is bundled as a reference). A different model needs its own definitions matching its parameters — that design work is exactly what you delegate to the AI agent. Definition files are treated as per-model workspace artifacts and are git-ignored just like `models/`, so switching models never dirties the repository.
 
+For local additions to a bundled definition, create `motion-defs/<model-name>.local.py`
+with the same `define(curve, motion)` format. Its motions and expressions are appended
+after the main definitions; duplicate names fail. This file and any local motion
+sources under `motion-defs/` stay git-ignored.
+
 ## Using the WebUI
 
 - Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
@@ -67,6 +72,7 @@ Motion definitions live in `motion-defs/<model-name>.py`, one file per model (a 
 - The card splits one-shot actions ("単発アクション") from loop motions ("ループ"). The motion that is playing is highlighted ("▶ 再生中" for a one-shot, a pulsing "⟳ ループ中" for a loop)
 - A loop repeats until you press "■ ループ停止" (stop loop; only enabled while a loop plays) or play another motion
 - "リップシンク" (lip sync) moves the mouth on top of any motion, one-shot or loop, to show how the avatar looks while speaking. Modes: OFF (the motion's own mouth), 疑似 (a simulated rhythm), 音声 (follows the loudness of an audio file you drop in or pick) and マイク (follows your microphone)
+- "表情" (expressions) applies an expression over the playing motion. Press the selected expression again or "表情リセット" to fade it out. Expressions work with one-shots, loops and lip sync, and are mirrored to the streaming page when the local relay is available.
 - The panel has two tabs: "モーション" (motions: everything above) and "カメラ" (camera: face tracking, recording and the streaming mode for OBS; see [Camera tracking and streaming](#camera-tracking-and-streaming)). The camera keeps running when you switch tabs, so you can play emotion motions while it drives the face; a red dot on the tab shows that it is on
 - Debug query parameters: `?play=Action:0` (auto-play), `&freeze=1.2` (freeze the pose at a given second), `&cycles=3` (end a loop motion after its 3rd cycle), `&lipsync=1` (simulated lip sync; `&lipsync=mic` for the microphone), `&audio=<url>` (lip-sync to an audio file), `&tab=camera` (open the camera tab), `&camera=1` (start the camera on load), `&fakeface=1` (synthetic face movement, no camera), `&record=N` (record N seconds and save; `&recordloop=1` as a loop, `&recordname=<name>` the motion name), `?uitest=1` (automated drag/zoom test)
 
@@ -93,6 +99,95 @@ tools/verify_browser.sh   # captures peak poses with headless Chrome (Chrome req
 ```
 
 Design rules (value ranges, returning to the base pose, avoiding physics-driven parameters, etc.) and model-specific knowledge are documented in [AGENTS.md](AGENTS.md). It is written for AI agents but useful for humans too.
+
+### Sharing motions between models
+
+`motion-defs/shared/gestures.py` contains portable nod, head-shake and surprised motions adapted from the Hiyori sample. Each shared pack uses `define(curve, motion)` and returns `(MOTIONS, MANIFEST)`. Times are seconds; parameter values are normalized: `0` is the model's estimated base pose, `-1` its safe minimum, and `+1` its safe maximum. Positive and negative sides scale independently. For example, a normalized MouthForm of `-0.5` maps to `-0.5` when the model rests at `1` with range `[-2,1]`.
+
+Opt in from `motion-defs/<model-name>.py` or its optional `.local.py`:
+
+```python
+SHARED_MOTIONS = {
+    "gestures": {
+        "nod": {},
+        "shakehead": {"scale": 0.8, "label": "Gentle head shake"},
+        "surprised": {"name": "my_surprised"},
+    },
+}
+```
+
+Run the usual generator and validator. Shared entries appear at the end of Action, preserving existing indices; default IDs are `shared_<pack>_<motion>`. Omit a pack/motion to leave it out, or set an entry to `False` to disable one selected in the main file. Local declarations merge options for the same entry. `name` changes the ASCII file stem, `label` the display name, and `scale` accepts `[-1,1]` (negative values reverse direction). `parameters` remaps a template parameter ID, for example `{"ParamCheek": "ParamTere"}`, or skips it with `None`. Remapping keys must occur in that template.
+
+Generation uses ranges/base poses from the model's original motions; standard IDs without a reference use conservative conventional ranges. Missing parameters, unknown ranges and physics outputs are skipped with a note; a motion with no usable parameters fails. One-shot curves must start/end at normalized `0`; loops use `loop=True` on both curves and motion. Unknown templates, unsafe values, duplicate target parameters and names colliding with model/local/recording definitions fail before files are written. Keep `models/<model>/.generated-shared-motions.json`: it records ownership so unselected generated files are excluded from future range analysis. Such files remain on disk but are unregistered; unmanaged files are never overwritten by shared motions. The validator independently checks conventional fallback ranges too. Always inspect the result on each model: the same parameter can produce a different expression or direction on a different rig.
+
+## Expressions
+
+An expression (`.exp3.json`) holds parameter changes independently of the motion. The Hiyori sample selects shared smile, shy, surprised and half-closed glare expressions, followed by its model-specific sleepy expression ("ねむい"). Its brows are hidden by bangs and the existing motions provide no angry brow pose, so the sample uses a sleepy face instead. To define your own, return an optional third dictionary from `define(curve, motion)`:
+
+```python
+EXPRESSIONS = {
+    "custom_smile": {
+        "label": "My smile", "fade_in": 0.4, "fade_out": 0.4,
+        "parameters": [
+            ("ParamEyeLOpen", 0, "Multiply"),
+            ("ParamEyeROpen", 0, "Multiply"),
+            ("ParamEyeLSmile", 1, "Overwrite"),
+            ("ParamEyeRSmile", 1, "Overwrite"),
+        ],
+    },
+}
+return MOTIONS, MANIFEST, EXPRESSIONS
+```
+
+The old `(MOTIONS, MANIFEST)` return still works. File names use ASCII letters, digits, `_` or `-`; labels must be unique. Each parameter tuple is `(ID, value, blend)`: `Add` adds to the motion value, `Multiply` multiplies it, and `Overwrite` replaces it. Multiply eye openness to retain blinks. Leave LipSync parameters out when speech should control the mouth. Fades default to 0.4 seconds; `label` defaults to the file name.
+
+Run the usual generator and validator. Files go to `models/<model>/expressions/` and are registered in `FileReferences.Expressions`. The generator keeps ownership records in `models/<model>/.generated-expressions.json`: retain this sidecar when reusing the working model. It updates/removes only its own registrations and rejects collisions with the model's existing names or files. Removing a definition unregisters it; the old generated file stays on disk. The validator checks the exp3 format, parameter IDs, physics outputs and the result of each blend on the estimated base pose against observed ranges (conservative conventional ranges for standard IDs without a reference). During playback values are clamped to the model's rig limits; lip sync writes the mouth last.
+
+Use `?expression=smile` (file stem or exact display name) to apply on load. To check expressions alone and over a motion, with simulated lip sync:
+
+```bash
+OUT=tmp-verify/smile tools/verify_browser.sh --expression smile
+OUT=tmp-verify/smile-nod tools/verify_browser.sh --expression smile Action:2 1.0
+```
+
+`OUT` selects the screenshot folder, which is cleared of PNG files at the start of each run. Inspect both screenshots for the intended face and smooth transitions when switching/resetting in the WebUI.
+
+With `tools/serve.py`, selecting or clearing an expression (including `?expression=`) also updates `stream.html` using the same expression file and fade times. The expression layer runs after face tracking and before lip sync on both pages. The server holds the last expression selection in memory and replays it to a streaming page that opens or reconnects later. Clearing an expression or switching models clears this state; restarting the server forgets it. One-shot motions are not replayed to late joiners. Restart the server and reload both pages after updating this feature.
+
+The relay message is `{"type":"expression","name":"smile"}`, or `name: null` to clear. `name` is the registered expression file stem (ASCII letters, digits, `_` or `-`, up to 240 characters), rather than an index or display label. This stays stable when expressions are reordered or translated, and lets a stream with an explicit `?model=` match its own registrations. Unknown or ambiguous stems leave its current expression unchanged; `?status=1` shows the diagnostic. Model changes also clear expressions on streams pinned to a model. Commands retain FIFO order even during file loading or a backlog; busy pose messages may be omitted. Recording-editor previews remain local.
+
+### Portable expressions across models
+
+Shared packs can return `(MOTIONS, MANIFEST, EXPRESSIONS)`; existing two-item packs still work. An expressions-only pack returns `({}, [], EXPRESSIONS)`. The bundled `motion-defs/shared/faces.py` provides smile, shy, surprised and sideways half-closed glare expressions, checked on both Hiyori and Haru. Select them separately from shared motions in the main or local model definitions:
+
+```python
+SHARED_EXPRESSIONS = {
+    "faces": {
+        "smile": {"name": "smile"},
+        "shy": {"name": "shy"},
+        "surprised": {},
+        "glare": {"scale": 0.8},
+    },
+}
+```
+
+Use the ordinary expression dictionary format in the shared pack, with these value rules:
+
+| Blend | Shared value and generated exp3 value |
+|---|---|
+| `Overwrite` | A normalized target `n` in `[-1,1]`: `0` = base, `-1` = safe minimum, `+1` = safe maximum. |
+| `Add` | A normalized offset `n` in `[-1,1]`, using the distance from base to the corresponding safe bound. The exp3 value is the mapped target minus base. |
+| `Multiply` | A finite plain factor, such as `0.5` to halve eye openness. It is not normalized. |
+
+For Add/Overwrite, first apply `n *= scale`, then map to `base + n * (max - base)` for nonnegative `n`, or `base + n * (base - min)` for negative `n`. For Multiply, scale changes the factor to `1 + (factor - 1) * scale`. Scale is finite in `[-1,1]`; `0` is neutral and negative values reverse the change. If applying a blend to the base pose exceeds a safe bound, generation clamps that result, prints a note and adjusts the exp3 value for that blend. Runtime clamping still applies over moving poses.
+
+Selection and options merge like `SHARED_MOTIONS`: local options override main options; `False` disables an entry; `name`, `label`, `scale` and `parameters` are supported. IDs default to `shared_<pack>_<expression>` and displayed labels start with `共通: `. Without a declaration, no shared expressions are added. Missing parameters, physics outputs and custom IDs without observed ranges are skipped with a note; no usable parameters fails. Model/local/shared name and label collisions, and collisions with shipped names or unmanaged files, fail before any output is written.
+
+Generated registrations and the UI list shared expressions first, then shipped expressions in their original relative order, then model/local expressions. The examples keep `?expression=smile` / `shy` working through the `name` option; their labels become `共通: 笑顔` / `共通: 照れ`. Their former model definitions are removed. Hiyori retains its model-specific sleepy expression; Haru retains angry. `closed_smile` is removed because smile already closes the eyes in a smiling arc.
+
+For Haru, remap `ParamCheek` to its observed `ParamTere` range `[0,1]` in both smile/shy selections. Smile also skips `ParamBrowLY` / `ParamBrowRY` with `None`, retaining Haru's original motion-driven brows. The shared smile uses blush `0.45` between the samples' previous `0.5` / `0.4`. Shy uses normalized brow targets and MouthForm multiplied by `0.3`; both samples rest at MouthForm `1`, giving the same restrained smile at rest while retaining the motion's mouth form.
+
+Shared expressions use the same `.generated-expressions.json` ownership ledger as model expressions. Opting out unregisters them and retains their files and ownership for later reuse. Moving an owned expression into a shared pack can reuse its file stem; its old owned registration is replaced without touching shipped entries. Keep the ledger for this transition: unmanaged files still cause a collision. Action indices stay unchanged. Verify each selected expression alone and over a motion on every model, using e.g. `--expression shared_faces_glare` or `?expression=共通:%20ジト目`. The surprised sample sets mouth opening; lip sync overrides it while speaking. Smug, troubled and stronger embarrassment were omitted because they did not read consistently on both sample rigs using their common parameters.
 
 ## Loop motions (e.g. an emotion held while speaking)
 
@@ -172,6 +267,30 @@ Reload the page to display the saved motion.
 
 The recording stores what your face adds to each parameter, so the idle or emotion motion that happened to be playing is not baked in. The generator puts it back on the model's base pose, keeps it within the observed value ranges, reduces it to keyframes, and eases in from and out to the base pose (a loop instead blends its end into its start and leaves out the lip-sync parameters). The result passes `validate_motions.py` as is.
 
+### Upper-body tracking
+
+With the camera running, enable "上半身も動かす" to follow your shoulders and torso. It starts OFF after every page load. Keep both shoulders in view; the first confident pose becomes neutral. "正面をリセット" recalibrates both face and body. "上半身の感度" adjusts body movement independently of "顔の感度"; smoothing and mirroring are shared. If your hips are hidden by a desk, shoulders still provide yaw and sideways tilt. Forward/backward tilt requires visible hips; the first valid hips establish its neutral angle.
+
+Body angles pass through a speed-adaptive One Euro filter to reduce small jitter while following faster movement. Body smoothing accounts for the measured pose interval; the shared smoothing slider adjusts that glide. Calibration and tracking loss reset the filters, and returning hips establish a fresh pitch neutral.
+
+Body movement adds to the existing sway derived from head rotation. At the default body sensitivity of 1, a shoulder tilt of about 10° can reach about 10° on the avatar; yaw is amplified less because shoulder depth is noisier. The combined contribution and rendered body angles are clamped to the model's observed motion ranges and rig bounds (Hiyori: X/Z ±10°, Y −7..10°; Haru: XYZ ±10°). The server supplies these ranges through read-only `GET /live/body-ranges?model=<model3 path>`, excluding generated Actions and shared remnants from reference analysis. Static or older servers fall back to conservative ±10° standard-ID bounds intersected with the rig. Low-confidence or lost poses fade out the body contribution while keeping face sway. Arms and model-specific shoulder controls remain unused. Moving sideways without changing the shoulder angle does not produce a tilt.
+
+Enable "数値を表示" or add `&bodydebug=1` to inspect detection, shoulder/hip confidence, pose interval/fps, raw and filtered yaw/pitch/roll, calibrated deltas, face-derived sway and the final `ParamBodyAngleX/Y/Z` additive values sent to the renderer/recorder/relay. This local readout defaults OFF, is not saved, and updates at most five times per second. IDs 11/12 are shoulders and 23/24 are hips; `!` marks confidence below 0.6 or insufficient presence. If only hips are weak, "肩のみ" and an unavailable pitch are expected. If shoulders are weak or "未検出" persists, bring both shoulders into view. If calibrated deltas are not near zero while facing forward, reset the neutral pose. If deltas change but output is small, raise body sensitivity; if output stays at its limit, increasing sensitivity will not extend the safe range. Yaw uses estimated shoulder depth, so verify its direction and stability with your camera.
+
+Pose Landmarker Lite is bundled locally with its [license and checksum](vendor/mediapipe/README.md). The runtime stays pinned to 0.10.21. Pose inference uses a separate CPU Worker at up to 10 fps, with one bitmap in flight and slower sampling when inference is expensive. It never holds up face-frame delivery. Camera images, body landmarks and diagnostics stay in the browser; only the resulting angles join recordings and the existing local OBS relay. Restart the server and reload both control and streaming pages after updates. During recording the body toggle is disabled to keep the parameter set consistent; old recordings remain unchanged.
+
+For checks without a camera, `?fakebody=1&bodytime=1` holds a synthetic body pose; use `bodytime=-1` for the opposite pose, omit it for movement, and add `&body=0` to compare with tracking disabled. `bodytime=0.35` gives a smaller lean; `&bodyhips=0&bodydebug=1` checks the shoulders-only path and readout. Combine with `&fakeface=1` and the existing recording hook to check both. Synthetic results do not establish real-camera accuracy or performance; check neutral calibration, loss recovery and face responsiveness with your camera.
+
+### Editing a saved recording
+
+In "保存したモーション", press the recording's "編集" button. Choose the start and end positions in the original recording (seconds), speed (0.25–4×), smoothing (0–1), and whether to loop. "試再生" previews these settings without saving; it runs only on the control page and temporarily leaves out live camera and lip-sync input. "停止" stops the preview. "編集を保存" saves and regenerates the motion; press "再読み込みして表示" to use it from the list. Close the editor to discard unsaved settings. "元の設定" restores the full source duration, normal speed, no smoothing and the original loop choice; save to apply that reset.
+
+Edits are stored in an optional `edit` object in the recording JSON; the original `params`, duration, date and loop flag are preserved. For example, `{"trimStart":1,"trimEnd":6,"speed":1.5,"smooth":0.6,"loop":false}` keeps source seconds 1–6 and plays them in about 3.33 seconds. `trimEnd` is the retained end position, not a length to remove. The generator trims, smooths with a centered 11-frame moving average blended by `smooth`, then resamples the speed at 30 fps before the existing base-pose easing or loop seam treatment. Recordings without `edit` generate exactly as before.
+
+"録画を削除" opens a confirmation inside the editor. "キャンセル" leaves the recording intact; "削除する" removes the source recording and its generated motion. If regeneration or validation fails, deletion is rolled back. After a successful deletion, reload to update the list.
+
+Editing needs `tools/serve.py`; restart it and force-reload after updating. `GET /live/status` advertises `recordingEdit: 1` while retaining `recordingsVersion: 2`. Same-origin JSON POSTs to `/recordings/preview`, `/recordings/edit`, and `/recordings/delete` use `{model, id, edit}` (`edit` is omitted for deletion). They require a localhost/127.0.0.1 Host with the server's port and serialize with recording saves and model switches. Preview returns a motion without writing files. Edit saves only the settings, then generates and validates; if either fails, the settings remain saved and the page reports the error. No editing endpoint changes the raw parameter samples.
+
 ### Streaming mode (OBS)
 
 1. Start the server with `python3 tools/serve.py`. The streaming mode needs it; `python3 -m http.server` cannot relay
@@ -184,7 +303,7 @@ In OBS, right-click the Browser source and choose "Interact" to adjust the avata
 
 You can also set the initial placement in the URL: `stream.html?bg=green&zoom=1.2&x=0.5&y=0.55`. `zoom` is relative to the initial fitted size; `x` and `y` are the avatar's center as fractions of the source width and height (0–1). Valid URL values override saved values on each load. Double-click resets to the URL placement, or to the centered default when no values are specified. Actual model scale is limited to 0.05–5, as in the control page.
 
-`stream.html` shows only the avatar. Motions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only these parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
+`stream.html` shows only the avatar. Motions, expressions, the camera face and the lip sync from the control page are mirrored to it through the local server. Only playback commands and parameters are relayed, never camera or microphone data, and the server listens on 127.0.0.1 only.
 
 ## Shortcut keys and switching motions from other apps
 
@@ -237,17 +356,21 @@ index.html                  WebUI (static HTML, no build step); resolves the mod
 stream.html                 Streaming page (avatar only, for OBS)
 web/                        WebUI modules (plain JavaScript with JSDoc types; no build step):
                             camera tracking, recording, streaming relay, loop playback
-vendor/mediapipe/           MediaPipe face model (Apache-2.0) used by the camera tracking
+vendor/mediapipe/           MediaPipe face/pose models and licenses used by camera tracking
 tools/
   serve.py                  Local server: static files, relay to stream.html, saving recordings
   setup_model.py            Place a model (zip/folder → models/) + generate model.config.json
   analyze_model.py          Analyze parameters, value ranges, physics outputs
   gen_motions.py            Generation engine (model-agnostic); builds + registers motions from definitions (idempotent)
+  recording_edits.py        Non-destructive trim, smoothing and speed processing for recordings
+  shared_motions.py         Map opted-in normalized shared motions to each model
+  shared_expressions.py     Map shared expression blends to each model's safe ranges
   validate_motions.py       Independently implemented validator
   verify_browser.sh         Real-rendering verification with headless Chrome (--loop: seam check)
                             (assumes the macOS Chrome path; override with env CHROME)
 motion-defs/<model>.py      Motion definitions (creative content, one file per model)
                             [git-ignored; only the bundled sample is tracked]
+motion-defs/shared/*.py     Tracked motion/expression packs shared by opted-in models
 AGENTS.md                   Working guide for AI agents
 model.config.json           [git-ignored] current model configuration (generated by setup_model.py)
 local-assets/ , models/     [git-ignored] Live2D model data (not included for licensing reasons)
@@ -262,4 +385,4 @@ The following are NOT covered by MIT and are subject to their own licenses:
 - **Live2D sample model "Hiyori"**: covered by the [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html); redistribution is prohibited, so it is not included here. Download it yourself from the [official distribution page](https://www.live2d.com/en/learn/sample/momose-hiyori/). The copyright of the model shown in the README screenshot belongs to Live2D Inc.
 - **Live2D Cubism Core** (`live2dcubismcore.min.js`): loaded by the WebUI from the official Live2D CDN ([Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)). This repository does not redistribute the Core itself. If you release a product embedding the SDK as a business, a [publication license](https://www.live2d.com/en/sdk/license/) may be required depending on your business scale.
 - **PixiJS / pixi-live2d-display**: loaded from CDNs (both MIT licensed).
-- **MediaPipe** (`@mediapipe/tasks-vision` and the Face Landmarker model): Apache License 2.0. The runtime is loaded from jsDelivr; the model and its license are in `vendor/mediapipe/`.
+- **MediaPipe** (`@mediapipe/tasks-vision`, Face Landmarker and Pose Landmarker Lite): Apache License 2.0. The runtime is loaded from jsDelivr; the models and licenses are in `vendor/mediapipe/`.

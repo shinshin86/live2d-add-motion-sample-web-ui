@@ -14,10 +14,13 @@ model.config.json
 .live-token
 .live-token-*
 
-# モデルごとのモーション定義はmodels/と同じ「作業成果物」扱い(同梱サンプルのみ追跡)
+# モデルごとの定義は作業成果物扱い(同梱サンプルとshared/*.pyのみ追跡)
 # 残したい定義は git add -f motion-defs/<モデル名>.py で明示的に追跡する
 motion-defs/*
 !motion-defs/hiyori_pro_t11.py
+!motion-defs/shared/
+motion-defs/shared/*
+!motion-defs/shared/*.py
 
 # macOS
 .DS_Store

@@ -25,6 +25,8 @@ export function createMotionPlayer(model) {
   const manager = model.internalModel.motionManager;
   /** @type {Record<string, boolean>} */
   const metaLoop = {};
+  let previewGroup = "RecordingPreview";
+  while (settings.motions[previewGroup]) previewGroup += "_";
 
   // Cubism keeps each parameter at its last value until a motion writes it again.
   // Parameters that the idle (or the next motion) does not animate would stay
@@ -85,11 +87,28 @@ export function createMotionPlayer(model) {
     return { ok, loop, motion };
   }
 
+  /** Play generated data locally without saving or changing registered Actions.
+   * @param {any} data
+   */
+  async function preview(data) {
+    const definition = { File: "", FadeInTime: 0.3, FadeOutTime: 0.5 };
+    const motion = manager.createMotion(data, previewGroup, definition);
+    const loop = !!data.Meta.Loop;
+    motion.setIsLoop(loop);
+    motion.setIsLoopFadeIn(false);
+    settings.motions[previewGroup] = [definition];
+    manager.motionGroups[previewGroup] = [motion];
+    const PIXI = /** @type {any} */ (globalThis).PIXI;
+    const ok = await model.motion(previewGroup, 0, PIXI.live2d.MotionPriority.FORCE);
+    if (ok) settle();
+    return { ok, loop, motion };
+  }
+
   /** Stop now: the pose eases back to rest and the idle (if any) fades in. */
   function stop() {
     manager.stopAllMotions();
     settle();
   }
 
-  return { isLoopMotion, play, stop, manager };
+  return { isLoopMotion, play, preview, stop, manager };
 }
