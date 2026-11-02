@@ -23,6 +23,8 @@ const SETTLE_TAU = 0.15;
 export function createMotionPlayer(model) {
   const settings = model.internalModel.settings;
   const manager = model.internalModel.motionManager;
+  // Keep preview registrations visible to the manager when Motions is absent.
+  settings.motions ??= manager.definitions;
   /** @type {Record<string, boolean>} */
   const metaLoop = {};
   let previewGroup = "RecordingPreview";

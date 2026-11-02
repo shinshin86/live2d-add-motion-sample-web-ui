@@ -65,10 +65,17 @@ elif [ "${1:-}" = "--loop" ]; then
   target="${2:?usage: verify_browser.sh --loop Group:index}"
   dur=$(python3 - "$target" <<'EOF'
 import json, os, sys
-group, index = sys.argv[1].split(":")
 cfg = json.load(open("model.config.json"))
 m3 = json.load(open(cfg["model3"]))
-entry = m3["FileReferences"]["Motions"][group][int(index)]
+try:
+    group, index = sys.argv[1].split(":")
+    index = int(index)
+    entries = m3.get("FileReferences", {}).get("Motions", {}).get(group, [])
+    if index < 0:
+        raise IndexError
+    entry = entries[index]
+except (ValueError, IndexError):
+    sys.exit(f"Motion {sys.argv[1]!r} is not registered (expected Group:index)")
 d = json.load(open(os.path.join(os.path.dirname(cfg["model3"]), entry["File"])))
 if not d["Meta"]["Loop"]:
     sys.exit(f"{sys.argv[1]} is not a loop motion (Meta.Loop=false)")
@@ -96,7 +103,7 @@ import json, os
 cfg = json.load(open("model.config.json"))
 m3 = json.load(open(cfg["model3"]))
 runtime = os.path.dirname(cfg["model3"])
-for i, e in enumerate(m3["FileReferences"]["Motions"].get("Action", [])):
+for i, e in enumerate(m3.get("FileReferences", {}).get("Motions", {}).get("Action", [])):
     d = json.load(open(os.path.join(runtime, e["File"])))
     stem = os.path.basename(e["File"]).replace(".motion3.json", "")
     print(i, stem, round(d["Meta"]["Duration"] * 0.4, 2))
