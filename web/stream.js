@@ -8,6 +8,7 @@ import { attachStreamView } from "./stream-view.js";
 import { attachFaceDriver } from "./live2d-face.js";
 import { loadBodyLimits } from "./body-model.js";
 import { createMotionPlayer } from "./motion-player.js";
+import { installCubismColors } from "./cubism-colors.js";
 import { attachExpressions, expressionId } from "./expressions.js";
 import { receiveRelay } from "./relay.js";
 
@@ -41,6 +42,7 @@ async function main() {
   });
   stage.appendChild(app.view);
   const modelPath = await modelJson();
+  installCubismColors();
   const model = await PIXI.live2d.Live2DModel.from(modelPath, { autoInteract: false });
   app.stage.addChild(model);
   attachStreamView(app, model, modelPath, params);
