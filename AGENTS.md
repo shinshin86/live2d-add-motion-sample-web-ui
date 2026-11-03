@@ -83,6 +83,21 @@ Important: everything under `models/` is **generated**. Never edit
 and re-run `gen_motions.py`. Everything under `tools/` is a model-agnostic
 engine; do not edit it when switching models.
 
+## Model compatibility
+
+`FileReferences.Motions` is optional. Analyze includes unregistered motion files
+in its reference ranges (excluding Actions and shared-owned files) and reports
+registered/unregistered counts. Do not auto-register shipped motions. In the
+player, use `settings.motions ??= manager.definitions` so recording previews and
+the motion manager share the same definitions even when Motions is absent.
+
+`web/cubism-colors.js` adds Core drawable multiply/screen colors to the pinned
+pixi-live2d-display 0.4.0 renderer on both control and streaming pages. Call
+`installCubismColors()` before `Live2DModel.from`. It preserves mask generation;
+unsupported library/shader shapes or missing Core colors warn and keep the
+original behavior. Review the hooks and run `node tools/test_cubism_colors.mjs`
+when changing the library, then compare actual rendering on existing models.
+
 ## Design rules (model-independent)
 
 An optional `motion-defs/<model>.local.py` uses the same `define(curve, motion)`

@@ -63,12 +63,18 @@ def main():
     # output as the reference would let value ranges drift over time
     model3 = find_one("*.model3.json")
     groups = {}
+    registered = set()
     if model3:
         m3 = json.load(open(model3))
         groups = {g["Name"]: g["Ids"] for g in m3.get("Groups", [])}
+        motion_groups = m3.get("FileReferences", {}).get("Motions", {})
+        registered = {
+            os.path.normpath(os.path.join(RUNTIME, e["File"]))
+            for entries in motion_groups.values() for e in entries
+        }
         generated = {
             os.path.normpath(os.path.join(RUNTIME, e["File"]))
-            for e in m3["FileReferences"]["Motions"].get("Action", [])
+            for e in motion_groups.get("Action", [])
         }
         ledger = os.path.join(RUNTIME, ".generated-shared-motions.json")
         if os.path.exists(ledger):
@@ -102,7 +108,9 @@ def main():
             first_vals[c["Id"]][round(pts[0][1], 2)] += 1
 
     print(f"# runtime: {RUNTIME}")
-    print(f"# aggregated from {len(motions)} existing motions\n")
+    registered_count = sum(os.path.normpath(f) in registered for f in motions)
+    print(f"# aggregated from {len(motions)} existing motions "
+          f"({registered_count} registered, {len(motions) - registered_count} unregistered)\n")
     header = f"{'ParamId':32s} {'min':>8s} {'max':>8s} {'base(est)':>10s}  physics  display name"
     print(header)
     print("-" * len(header))

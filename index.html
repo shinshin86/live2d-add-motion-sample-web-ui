@@ -385,6 +385,7 @@
     import { startFakeFace } from "./web/fake-face.js";
     import { attachFaceDriver } from "./web/live2d-face.js";
     import { createMotionPlayer } from "./web/motion-player.js";
+    import { installCubismColors } from "./web/cubism-colors.js";
     import { attachExpressions, expressionId } from "./web/expressions.js";
     import { attachRecordingEditor } from "./web/recording-editor.js";
     import { attachHotkeys } from "./web/hotkeys.js";
@@ -426,6 +427,7 @@
       });
       stage.appendChild(app.view);
 
+      installCubismColors();
       const model = await PIXI.live2d.Live2DModel.from(MODEL_JSON);
       app.stage.addChild(model);
 
@@ -482,9 +484,10 @@
       };
 
       const settings = model.internalModel.settings;
+      const mm = model.internalModel.motionManager;
+      settings.motions ??= mm.definitions;
       const groups = settings.motions; // FileReferences.Motions
       const NEW_GROUP = "Action"; // group of motions added by this repo (JSON only)
-      const mm = model.internalModel.motionManager;
 
       // Loop playback lives in web/motion-player.js (shared with stream.html)
       const player = createMotionPlayer(model);

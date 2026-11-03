@@ -65,6 +65,19 @@ with the same `define(curve, motion)` format. Its motions and expressions are ap
 after the main definitions; duplicate names fail. This file and any local motion
 sources under `motion-defs/` stay git-ignored.
 
+### Model compatibility
+
+`FileReferences.Motions` in model3.json is optional. Models without registered
+motions can be analyzed and opened in the WebUI. Bundled, unregistered motion
+files are used to estimate parameter ranges; they are not automatically
+registered for playback.
+
+Both WebUI pages apply the model's multiply and screen colors through
+`web/cubism-colors.js`. This compatibility module depends on pixi-live2d-display
+0.4.0; review it when updating that library. If the expected library/shader
+structure or Core color data is unavailable, it warns in the browser console
+and retains the original rendering behavior.
+
 ## Using the WebUI
 
 - Play the newly added motions from the highlighted card (★ buttons); existing motions are in the collapsible sections below
